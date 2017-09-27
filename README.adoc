@@ -1,0 +1,101 @@
+= Layercake
+Layercake manages multiple chroot build roots in a Gentoo binary-build-host system.
+
+Layercake supports setting up build roots which inherit from other build roots. This allows
+the user to build variant systems without having to rebuild most of the base packages in each
+variant system.  This feature uses the Linux _overlayfs_ filesystem.
+
+The user may set up multiple base build roots, each of which contains the whole layout of
+files for the build system.  Build roots which derive from other build roots--which may in
+turn be either base build roots or other derived roots.  This gives rise to the image of
+these base directories being arranged in layers, as in a cake.
+
+Layercake refers to all of these build-root directories, whether base or derived, as
+_layers_.  The program manages all needed filesystem mounts, including _overlayfs_ mounts;
+special mounts for `/dev`, `/proc`, and `/sys`; _bind_ mounts for `/usr/portage`; and other
+mounts as specified in the local configuration.
+
+Layercake also manages a directory containing symlinks to the respective
+`/var/lib/packages/` directories for the use of an HTTP server for the distribution of the
+binary packages.
+
+Layers, though declared as being a part of a hierarchy, are stored in sibling directories in
+the filesystem.  For this reason directory names must be distinct.
+
+== Basic Usage Patterns
+
+These steps assume the user has configured and initialized the Layercake installation.
+
+=== Create, populate, and use a base layer
+
+In this example we use "base" as the name of the layer.  The use first issues these three
+commands to declare the layer as a base layer, create the directories that Layercake uses
+to manage the layer, and finally to open a command prompt with the user switched to the
+build directory.
+
+--------------------
+layercake add base
+layercake mkdirs base
+layercake shell base
+--------------------
+
+At this point the new build directory is empty; it is not ready for a chroot.  Now is the
+time to untar the stage3 package and configure Portage as indicated in the Gentoo Handbook.
+
+Layercake automatically mounts the Portage tree as part of its preparation for entering a
+chroot, so there is no need to download the Portage tarball.  All that is needed is to
+create the mountpoint directory.  By default this is `/usr/portage`.
+
+--------------------
+mkdir usr/portage
+--------------------
+
+In an similar way be sure to create other needed directories which Layercake may be
+configured to set up, such as overlay directories.
+
+At this point the layer should be ready for chroot.  As in any Gentoo installation, it
+may be advantageous for the user to maintain one login with full access to the host
+system while doing the chroot under a different login.  Layercake is tolerant of this and
+even of having multiple chroot logins at once to the same layer.
+
+--------------------
+layercake chroot base
+--------------------
+
+This ensures that all the needed mounts are performed and even sets up the root prompt
+with an indication of the name of the current layer.  Now the user may go on with the
+build process as needed.
+
+=== Create and use a child (derived) layer
+
+This is much simpler than setting up a base layer.  Here we assume the derived layer,
+called "notebook", has a different set of processor flags than does the base system.
+
+--------------------
+layercake add notebook base
+layercake mkdirs notebook
+layercake chroot notebook
+--------------------
+
+Immediately we can chroot into the new layer since the base layer is already set up.
+Edit the Portage configuration as necessary and build according to the new configuration
+with the confidence that the base layer remains unaltered.
+
+== Directory layout
+
+The directory tree shown here is relative to the Layercake base directory, which in the
+default configruation is `/var/www/binpackager`.
+
+- layers:: Layer-description file (managed by Layercake)
+- build/:: Parent directory of per-layer build chroots
+* _layer1_:: First build chroot
+* _layer2_:: Second build chroot
+* ...
+- overlay_workdirs:: Overlayfs work directories
+- overlay_filedirs:: Overlayfs file directories
+- html :: Portage binhost root for serving packages to other Gentoo systems
+* index.html :: Index file for the benefit of anyone browsing this directory
+* _layer1_:: Symlink to the first layer's /var/lib/packages/
+* _layer2_:: Symlink to the second layer's /var/lib/packages/
+* ...
+

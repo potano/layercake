@@ -845,7 +845,7 @@ func (ld *Layerdefs) Chroot(name string, mounts fs.Mounts,
 			return err
 		}
 		if layer.State < Layerstate_mounted {
-			return fmt.Errorf("Layer %s is empty; cannot change to it", name)
+			return fmt.Errorf("Layer %s is not mounted; cannot change to it", name)
 		}
 	}
 	builddir := ld.buildroot + "/" + name
@@ -1187,7 +1187,7 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 		}
 		if mnt.Source != nbm.source {
 			mnt2 := mounts.GetMount(nbm.source)
-			if nil == mnt2 || mnt2.Source != mnt.Source {
+			if nil != mnt2 && mnt2.Source != mnt.Source {
 				badMounts++
 				continue
 			}
