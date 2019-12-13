@@ -245,14 +245,22 @@ func (ld *Layerdefs) ProbeLayerstate(cfg *config.ConfigType, mounts fs.Mounts,
 			continue
 		}
 		if layer.Defined {
-			var missing int
+			var mask, missing int
 			if len(layer.Base) > 0 {
-				missing = layer.State ^ layersPresent__derived
+				mask = layersPresent__derived
 			} else {
-				missing = layer.State ^ layersPresent__base
+				mask =  layersPresent__base
 			}
+			missing = layer.State ^ mask
 			if missing > 0 {
+				var dirs []string
 				layer.State = Layerstate_incomplete
+				for lcX := range layercomponents {
+					if mask & layercomponents[lcX].mask > 0 {
+						dirs = append(dirs, layercomponents[lcX].desc)
+					}
+				}
+				layer.Messages = append(layer.Messages, "Missing " + strings.Join(dirs, ", "))
 				continue
 			}
 		} else if (layer.State ^ layersPresent__derived) == 0 {
@@ -1106,8 +1114,26 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 	if layer.State <= Layerstate_error {
 		return
 	}
-	if !fs.IsDir(builddir) || !fs.IsSymlink(htmllink) ||
-		(len(layer.Base) > 0 && (!fs.IsDir(upperdir) || !fs.IsDir(workdir))) {
+	layerComplete := true;
+	if have := fs.IsDir(builddir); !have {
+		layer.Messages = append(layer.Messages, "Missing build directory " + builddir)
+		layerComplete = false
+	}
+	if have := fs.IsSymlink(htmllink); !have {
+		layer.Messages = append(layer.Messages, "Missing HTML symbolic link " + htmllink)
+		layerComplete = false
+	}
+	if len(layer.Base) > 0 {
+		if have := fs.IsDir(upperdir); !have {
+			layer.Messages = append(layer.Messages, "Missing upper directory " + upperdir)
+			layerComplete = false
+		}
+		if have := fs.IsDir(workdir); !have {
+			layer.Messages = append(layer.Messages, "Missing work directory " + workdir)
+			layerComplete = false
+		}
+	}
+	if !layerComplete {
 		layer.State = Layerstate_incomplete
 		return
 	}
