@@ -3,7 +3,7 @@ package fns
 import (
 	"fmt"
 
-	"layercake/config"
+	"potano.layercake/config"
 )
 
 func ShowStatus(cfg *config.ConfigType) {

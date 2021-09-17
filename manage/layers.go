@@ -8,8 +8,8 @@ import (
 	"unicode"
 	"path/filepath"
 
-	"layercake/fs"
-	"layercake/config"
+	"potano.layercake/fs"
+	"potano.layercake/config"
 )
 
 type Layerdefs struct {

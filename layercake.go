@@ -11,10 +11,10 @@ import (
 	"strings"
 	"path/filepath"
 
-	"layercake/fs"
-	"layercake/fns"
-	"layercake/config"
-	"layercake/manage"
+	"potano.layercake/fs"
+	"potano.layercake/fns"
+	"potano.layercake/config"
+	"potano.layercake/manage"
 )
 
 var (
