@@ -9,368 +9,383 @@ import (
 	"flag"
 	"path"
 	"strings"
-	"path/filepath"
 
 	"potano.layercake/fs"
 	"potano.layercake/fns"
 	"potano.layercake/config"
 	"potano.layercake/manage"
+	"potano.layercake/defaults"
 )
 
-var (
-	layers *manage.Layerdefs
-)
 
-const usageMessage = `Manages layers in the build chroot
+const mainUsageMessage = `Manages layers in the build chroot
 Usage:
   {{myself}} [main-options] <command> [command-options]
 These commands are available
-  init             Establish the layer system in current directory
+  init             Establish the layer system in configured directory
   status           Display the status of the build root
   list [-v]        Display list of layers showing status
                    Add -v for a more verbose listing
   add <layer> [base]  Add a layer and indicate layer it derives
   rename <layer> <newname>  Rename a layer
   rebase <layer> [newbase]  Change a layer's base layer
-  remove <layer> [-files]   Remove a layer; use -files to remove
-                            files and directories also
-  shell [layer]   Starts a shell in the named layer or the first
-                  base-level layer.  Useful for setting up base
-                  layer before it can be made mountable.
-  mkdirs [layer]  Create or recreate needed directories in named
-                  layer or in all layers
-  mount [layer]   Mount per-layer directories in named layer or
+  remove <layer> [-files]   Remove a layer; use -files to remove files and
+                  directories also
+  shell <layer>   Starts a shell in the named layer.  Useful for setting
+                  up a base layer before it can be made mountable.
+  mkdirs <layer>  Create or recreate needed directories in named layer
                   in all layers
-  umount [layer]  Mount per-layer directories in named layer or
-                  in all layers
-  shake           Remount all current overlayfs mounts to ensure
-                  that changes in lower layers propagate upward
-                  to mounted layers
-  chroot [layer]  Starts a chroot using named layer or first base-
-                  level layer if none specified
+  umount [layer]  Mount per-layer directories in named layer.  Use the
+                  -all switch to unmount all non-busy layers
+  shake           Remount all current overlayfs mounts to ensure that
+                  changes in lower layers propagate upward to mounted
+		  layers
+  chroot <layer>  Starts a chroot using named layer
+
 Main options
   --config <file> Specify/override configuration-file location
   --basepath <path>  Specify/override build-root basepath
-Global options
+
+Global options (may be specified anywhere in the command line)
   -v              Verbose mode: show actions (to be) taken
-  -p              Pretend to carry out actions; implies -v
+  -p              Pretend to carry out actions
   -f              Force action
+  -debug          Show debugging output
 `
+
+const argumentHintMessage = `
+Usage:
+  {{myself}} [main-options] <command> [command-args-and-options]
+  {{myself}} -h`
+
+
+func templatedExitMessage(baseMessage string, exitCode int, subst map[string]string) {
+	subst["myself"] = path.Base(os.Args[0])
+	fmt.Fprintln(os.Stderr, fns.Template(baseMessage, subst))
+	os.Exit(exitCode)
+}
+
+
+func argumentHintMessageAndExit() {
+	templatedExitMessage(argumentHintMessage, 1, map[string]string{})
+}
+
 
 func main() {
 	opts := config.NewOpts()
-	var configFile, basepath, command, arg1, arg2 string
-	var removeFiles bool
-	cfg := config.NewDefaultConfig()
+	var configFile, basepath string
+	var help bool
 
 	flag.StringVar(&configFile, "config", "", "specify configuration file")
 	flag.StringVar(&basepath, "basepath", "", "specify a base path")
+	flag.BoolVar(&help, "help", false, "help")
+	flag.BoolVar(&help, "h", false, "help")
 	opts.AddFlagsToFlagset(flag.CommandLine)
-	flag.Usage = func () {
-		subst := map[string]string{
-			"myself": path.Base(os.Args[0]),
-		}
-		fmt.Fprintln(os.Stderr, fns.Template(usageMessage, subst))
-		os.Exit(0)
-	}
+	flag.Usage = argumentHintMessageAndExit
 	flag.Parse()
-	opts.AfterParse()
-
-	if len(basepath) < 1 {
-		basepath = os.Getenv("LAYERROOT")
-	}
-	if len(configFile) < 1 {
-		var choices []string
-		fromenv := os.Getenv("LAYERCONF")
-		if len(fromenv) > 0 {
-			choices = append(choices, fromenv)
-		}
-		home := os.Getenv("HOME")
-		if len(home) > 0 {
-			choices = append(choices, home + "/.layercake")
-		}
-		parentdir := path.Dir(path.Dir(os.Args[0]))
-		if len(parentdir) > 0 {
-			choices = append(choices, parentdir + "/etc/layercake")
-			choices = append(choices, parentdir + "/etc/layercake.conf")
-		}
-		choices = append(choices, "/etc/layercake.conf")
-		for _, filepath := range choices {
-			if fs.IsFile(filepath) {
-				configFile = filepath
-				break
-			}
-		}
-	}
-	if len(configFile) > 0 {
-		err := cfg.ReadConfigFile(configFile)
-		if nil != err {
-			fatal("Can't read configuration file: %s", err)
-		}
-		basepath = cfg.GetCfg("basepath")
-		if len(basepath) < 1 {
-			fatal("Configuration file has no valid basepath")
-		}
-	} else if len(basepath) == 0 {
-		fatal("No configuration file found and no base path specified")
-	}
-	if len(basepath) > 0 {
-		cfg.Set("basepath", basepath)
+	if help {
+		templatedExitMessage(mainUsageMessage, 0, map[string]string{})
 	}
 
-	basepath, err := filepath.Abs(basepath)
-	if nil != err {
-		fatal("% in specified %s", err, basepath)
+	cfg, err := config.Load(configFile, basepath)
+	if err != nil {
+		fatal(err.Error())
 	}
-	if !fs.IsDir(basepath) {
-		fatal("Specified base path %s does not exist", basepath)
-	}
-	cfg.Set("basepath", basepath)
 
-	missing, haveAbsPath := cfg.CheckConfigPaths()
+	missing, haveNonBasePaths := cfg.CheckConfigPaths()
 
-
-	var flagset *flag.FlagSet
-	var minNeeded, maxNeeded int
-	sw := localSwitches{}
-	command = "status"
-	withHelpReminder := true
 	args := flag.Args()
+	cmdinfo := commandInfo{
+		cfg: cfg,
+		missing: missing,
+		haveNonBasePaths: haveNonBasePaths,
+		isDefaultCommand: len(args) == 0,
+		args: args,
+		opts: opts,
+		sw: newLocalSwitches(),
+	}
+
+	command := defaults.DefaultCommand
 	if len(args) > 0 {
 		command = args[0]
-		withHelpReminder = false
-		flagset = flag.NewFlagSet("command", flag.ContinueOnError)
-		opts.AddFlagsToFlagset(flagset)
-		flagset.Usage = flag.Usage
-		switch command {
-		case "add", "rebase":
-			minNeeded, maxNeeded = 1, 2
-		case "remove":
-			minNeeded, maxNeeded = 1, 1
-			sw.Add("files", &removeFiles)
-		case "rename":
-			minNeeded, maxNeeded = 2, 2
-		case "shell", "mkdir", "mkdirs", "mount", "umount", "chroot":
-			minNeeded, maxNeeded = 0, 1
-		}
-		sw.AddToFlagset(flagset)
+	}
+
+	fn := map[string]func(commandInfo){
+		"init": initCommand,
+		"status": statusCommand,
+		"list": listCommand,
+		"add": addCommand,
+		"remove": removeCommand,
+		"rename": renameCommand,
+		"rebase": rebaseCommand,
+		"shell": shellCommand,
+		"mkdirs": mkdirsCommand,
+		"mount": mountCommand,
+		"unmount": unmountCommand,
+		"chroot": chrootCommand,
+		"shake": shakeCommand,
+	}[command]
+
+	if fn == nil {
+		fatal("Unknown command %s", command)
+	}
+	fn(cmdinfo)
+}
+
+
+type commandInfo struct {
+	cfg *config.ConfigType
+	missing []string
+	haveNonBasePaths bool
+	isDefaultCommand bool
+	args []string
+	opts *config.Opts
+	sw *localSwitches
+}
+
+
+func (ci commandInfo) getArgs(minNeeded, maxNeeded int) []string {
+	args := ci.args
+	ci.args = []string{}
+	for len(args) > 0 {
+		ci.args = append(ci.args, args[0])
+		flagset := flag.NewFlagSet("", flag.ExitOnError)
+		ci.opts.AddFlagsToFlagset(flagset)
+		ci.sw.AddFlagsToFlagset(flagset)
+		flagset.Usage = argumentHintMessageAndExit
 		flagset.Parse(args[1:])
-		opts.AfterParse()
 		args = flagset.Args()
 	}
+	args = ci.args[1:]
+	if len(args) < minNeeded {
+		fatal("Not enough command-line arguments (need %d)", minNeeded)
+	}
+	if len(args) > maxNeeded {
+		fatal("Too many command-line arguments (max %d)", maxNeeded)
+	}
+	for len(args) < maxNeeded {
+		args = append(args, "")
+	}
+	fs.WriteOK = ci.opts.MakePretender()
+	fs.ReadOK = ci.opts.MakeReaderOpts(false).MakePretender()
+	return args
+}
 
-	argv := []*string{&arg1, &arg2}
-	for argX := range argv {
-		if maxNeeded > argX {
-			if len(args) < 1 {
-				if minNeeded > argX {
-					fatal("Not enough arguments to the %s command", command)
-				}
-				break
-			}
-			*argv[argX] = args[0]
-			flagset = flag.NewFlagSet("arg1", flag.ContinueOnError)
-			opts.AddFlagsToFlagset(flagset)
-			flagset.Usage = flag.Usage
-			sw.AddToFlagset(flagset)
-			flagset.Parse(args[1:])
-			opts.AfterParse()
-			args = flagset.Args()
+
+func (ci commandInfo) getLayers() *manage.Layerdefs {
+	if len(ci.missing) > 0 {
+		fatal("Base directory not set up--cannot proceed")
+	}
+	layers, err := manage.FindLayers(ci.cfg, ci.opts)
+	if nil != err {
+		fatal(err.Error())
+	}
+	mounts, err := fs.ProbeMounts()
+	if nil != err {
+		fatal("%s probing mounts", err)
+	}
+	br := ci.cfg.Layerdirs
+	if br[len(br)-1] != '/' {
+		br += "/"
+	}
+	inuse, err := fs.FindUses(br, -1)
+	if nil != err {
+		fatal("%s finding users in buildroot", err)
+	}
+	err = layers.ProbeAllLayerstate(mounts, inuse)
+	if nil != err {
+		fatal("%s probing layers", err)
+	}
+	return layers
+}
+
+
+
+
+
+func initCommand(cmdinfo commandInfo) {
+	cmdinfo.getArgs(0, 0)
+	if len(cmdinfo.missing) == 0 {
+		fmt.Println("Base directories already set up:  nothing to do")
+		return
+	}
+	if cmdinfo.haveNonBasePaths {
+		fatal("At least one base element has an absolute path: need manual setup")
+	}
+	for _, dir := range cmdinfo.missing {
+		_, err := fs.MakeDir(dir)
+		if nil != err {
+			fatal("%s creating directory %s", err, dir)
 		}
 	}
-
-
-	switch command {
-	case "init":
-		if len(missing) == 0 {
-			fmt.Println("Base directories already set up:  nothing to do")
-			return
-		}
-		if haveAbsPath {
-			fatal("At least one base element has an absolute path: need manual setup")
-		}
-		for _, dir := range cfg.GetDirPaths() {
-			_, err = fs.MakeDir(dir)
-			if nil != err {
-				fatal("%s creating directory %s", err, dir)
-			}
-		}
-		err = fs.PrepHtmlDir(cfg.GetPath("htmlroot"))
-		if nil != err {
-			fatal("%s setting up HTML directory", err)
-		}
-		err = fs.MakeEmptyLayersFile(cfg.GetPath("layersfile"))
-		if nil != err {
-			fatal("%s making empty layers file", err)
-		}
-	case "status":
-		if len(missing) == 0 {
-			fns.ShowStatus(cfg)
-		} else if len(missing) < 3 {
-			for _, name := range missing {
-				val := cfg.GetPath(name)
-				if len(val) > 0 {
-					fmt.Printf("Base item %s (path %s) is missing\n", name, val)
-				} else {
-					fmt.Printf("Base item %s is not specified\n", name)
-				}
-			}
-			fatal("Cannot proceed unless all base components exist")
-		} else if haveAbsPath {
-			fmt.Println("Base directories/layers file not set up; need manual setup")
-		} else {
-			fmt.Println("Base directory not set up; init command creates them")
-		}
-		if withHelpReminder {
-			fmt.Println("Use --help switch for command usage")
-		}
-	default:
-		if len(missing) > 0 {
-			fatal("Base directory not set up--cannot proceed")
-		}
-		layersfileName := cfg.GetPath("layersfile")
-		layers, err = manage.ReadLayersfile(layersfileName)
-		if nil != err {
-			fatal(err.Error())
-			fatal("%s reading layers file %s", err, cfg.GetPath("layersfile"))
-		}
-		mounts, err := fs.ProbeMounts()
-		if nil != err {
-			fatal("%s probing mounts", err)
-		}
-		br := cfg.GetPath("buildroot")
-		if br[len(br)-1] != '/' {
-			br += "/"
-		}
-		inuse, err := fs.FindUses(br, -1)
-		if nil != err {
-			fatal("%s finding users in buildroot", err)
-		}
-		err = layers.ProbeLayerstate(cfg, mounts, inuse)
-		if nil != err {
-			fatal("%s probing layers", err)
-		}
-
-		switch command {
-		case "list":
-			llist := layers.Layers()
-			if len(llist) < 1 {
-				fmt.Println("No layers found")
-				break
-			}
-			layers.CautionIfCaution(false, true)
-			tbl := fns.NewAdaptiveTable("   l    l   c   l")
-			tbl.SetLabels("Layer", "Parent", "Usage", "Setup State")
-			for _, layer := range llist {
-				var basespec string
-				var more []string
-				if len(layer.Base) > 0 {
-					basespec = "<- " + layer.Base
-				} else {
-					basespec = "(base level)"
-				}
-				if !layer.Defined {
-					more = []string{"undefined"}
-				}
-				if layer.Chroot {
-					more = append(more, "chroot")
-				} else if layer.Busy {
-					more = append(more, "busy")
-				}
-				if layer.BaseError {
-					more = append(more, "base error")
-				}
-				tbl.Print(layer.Name, basespec, strings.Join(more, ", "),
-					layers.DescribeState(layer, opts.Verbose))
-			}
-			tbl.Flush()
-		case "add":
-			err = layers.AddLayer(arg1, arg2, opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-			layers.CautionIfCaution(true, false)
-			if !opts.Pretend {
-				err = layers.WriteLayersfile(layersfileName)
-				if nil != err {
-					fatal("%s writing to %s", err, layersfileName)
-				}
-			}
-		case "remove":
-			err = layers.RemoveLayer(arg1, removeFiles, opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-			layers.CautionIfCaution(true, false)
-			if !opts.Pretend {
-				err = layers.WriteLayersfile(layersfileName)
-				if nil != err {
-					fatal("%s writing to %s", err, layersfileName)
-				}
-			}
-		case "rename":
-			err = layers.RenameLayer(arg1, arg2, opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-			layers.CautionIfCaution(true, false)
-			if !opts.Pretend {
-				err = layers.WriteLayersfile(layersfileName)
-				if nil != err {
-					fatal("%s writing to %s", err, layersfileName)
-				}
-			}
-		case "rebase":
-			err = layers.RebaseLayer(arg1, arg2, opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-			layers.CautionIfCaution(true, false)
-			if !opts.Pretend {
-				err = layers.WriteLayersfile(layersfileName)
-				if nil != err {
-					fatal("%s writing to %s", err, layersfileName)
-				}
-			}
-		case "shell":
-			err = layers.Shell(arg1, opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-			layers.CautionIfCaution(true, false)
-		case "mkdir", "mkdirs":
-			err = layers.Makedirs(arg1, opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-			layers.CautionIfCaution(true, false)
-		case "mount":
-			err = layers.Mount(arg1, mounts, opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-			layers.CautionIfCaution(true, false)
-		case "umount":
-			err = layers.Unmount(arg1, opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-			layers.CautionIfCaution(true, false)
-		case "chroot":
-			err = layers.Chroot(arg1, mounts, cfg, opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-		case "shake":
-			err = layers.Shake(opts)
-			if nil != err {
-				fatal(err.Error())
-			}
-		default:
-			fatal("Unknown command %s", command)
-		}
+	err := fs.WriteTextFile(path.Join(cmdinfo.cfg.Basepath, defaults.SkeletonLayerconfigFile),
+		defaults.SkeletonLayerconfig)
+	if err != nil {
+		fatal("%s setting up default layer configuration", err.Error())
+	}
+	err = fs.WriteTextFile(path.Join(cmdinfo.cfg.Exportdirs, defaults.ExportIndexHtmlName),
+		defaults.ExportIndexHtml)
+	if err != nil {
+		fatal("%s setting up export directory", err.Error())
 	}
 }
+
+
+func statusCommand(cmdinfo commandInfo) {
+	cmdinfo.getArgs(0, 0)
+	if len(cmdinfo.missing) == 0 {
+		fns.ShowStatus(cmdinfo.cfg)
+	} else if len(cmdinfo.missing) < 3 {
+		for _, name := range cmdinfo.missing {
+			fmt.Printf("Directory %s is missing\n", name)
+		}
+		fatal("Cannot proceed unless all base directores exist")
+	} else if cmdinfo.haveNonBasePaths {
+		fmt.Println("Base directories/layers file not set up; need manual setup")
+	} else {
+		fmt.Println("Base directory not set up; init command creates them")
+	}
+	if cmdinfo.isDefaultCommand {
+		fmt.Println("Use --help switch for command usage")
+	}
+}
+
+
+func listCommand(cmdinfo commandInfo) {
+	cmdinfo.getArgs(0, 0)
+	layers := cmdinfo.getLayers()
+	llist := layers.Layers()
+	if len(llist) < 1 {
+		fmt.Println("No layers found")
+		return
+	}
+	tbl := fns.NewAdaptiveTable("   l    l   c   l")
+	tbl.SetLabels("Layer", "Parent", "Usage", "Setup State")
+	for _, layer := range llist {
+		var basespec string
+		var more []string
+		if len(layer.Base) > 0 {
+			basespec = "<- " + layer.Base
+		} else {
+			basespec = "(base level)"
+		}
+		if layer.Chroot {
+			more = append(more, "chroot")
+		} else if layer.Busy {
+			more = append(more, "busy")
+		}
+		tbl.Print(layer.Name, basespec, strings.Join(more, ", "),
+		layers.DescribeState(layer, cmdinfo.opts.Verbose))
+	}
+	tbl.Flush()
+}
+
+
+func addCommand(cmdinfo commandInfo) {
+	var configFile string
+	cmdinfo.sw.Add("configfile", &configFile)
+	args := cmdinfo.getArgs(1, 2)
+	layers := cmdinfo.getLayers()
+	err := layers.AddLayer(args[0], args[1], configFile)
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
+func removeCommand(cmdinfo commandInfo) {
+	var removeFiles bool
+	cmdinfo.sw.Add("files", &removeFiles)
+	args := cmdinfo.getArgs(1, 1)
+	layers := cmdinfo.getLayers()
+	err := layers.RemoveLayer(args[0], removeFiles)
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
+func renameCommand(cmdinfo commandInfo) {
+	args := cmdinfo.getArgs(2, 2)
+	layers := cmdinfo.getLayers()
+	err := layers.RenameLayer(args[0], args[1])
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
+func rebaseCommand(cmdinfo commandInfo) {
+	args := cmdinfo.getArgs(1, 2)
+	layers := cmdinfo.getLayers()
+	err := layers.RebaseLayer(args[0], args[1])
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
+func shellCommand(cmdinfo commandInfo) {
+	args := cmdinfo.getArgs(1, 1)
+	layers := cmdinfo.getLayers()
+	err := layers.Shell(args[0])
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
+func mkdirsCommand(cmdinfo commandInfo) {
+	args := cmdinfo.getArgs(1, 1)
+	layers := cmdinfo.getLayers()
+	err := layers.Makedirs(args[0])
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
+func mountCommand(cmdinfo commandInfo) {
+	args := cmdinfo.getArgs(1, 1)
+	layers := cmdinfo.getLayers()
+	err := layers.Mount(args[0])
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
+func unmountCommand(cmdinfo commandInfo) {
+	var all bool
+	cmdinfo.sw.Add("all", &all)
+	args := cmdinfo.getArgs(0, 1)
+	layers := cmdinfo.getLayers()
+	err := layers.Unmount(args[0], all)
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
+func chrootCommand(cmdinfo commandInfo) {
+	args := cmdinfo.getArgs(1, 1)
+	layers := cmdinfo.getLayers()
+	err := layers.Chroot(args[0])
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
+func shakeCommand(cmdinfo commandInfo) {
+	layers := cmdinfo.getLayers()
+	err := layers.Shake()
+	if nil != err {
+		fatal(err.Error())
+	}
+}
+
+
 
 
 
@@ -383,11 +398,17 @@ type localSwitch struct {
 	pt interface{}
 }
 
+func newLocalSwitches() (*localSwitches) {
+	return &localSwitches{
+		sw: []localSwitch{},
+	}
+}
+
 func (ls *localSwitches) Add(name string, pt interface{}) {
 	ls.sw = append(ls.sw, localSwitch{name, pt})
 }
 
-func (ls *localSwitches) AddToFlagset(fs *flag.FlagSet) {
+func (ls *localSwitches) AddFlagsToFlagset(fs *flag.FlagSet) {
 	for _, sw := range ls.sw {
 		switch sw.pt.(type) {
 		case *bool:

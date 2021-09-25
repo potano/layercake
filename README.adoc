@@ -1,30 +1,60 @@
 = Layercake
-Layercake manages multiple chroot build roots in a Gentoo binary-build-host system.
+Manage multiple build roots in a Gentoo binary-build-host system
 
-Layercake supports setting up build roots which inherit from other build roots. This allows
-the user to build variant systems without having to rebuild most of the base packages in each
-variant system.  This feature uses the Linux _overlayfs_ filesystem.
+Gentoo's https://wiki.gentoo.org/wiki/Binary_package_guide[Binary package guide] describes
+how to set up a host for building binary packages for deployment to one or more target
+systems.  This allows the administrator to build once and deploy multiple times.  An added
+benefit is that the target machines remain fully usable during the build process.
 
-The user may set up multiple base build roots, each of which contains the whole layout of
-files for the build system.  Build roots which derive from other build roots--which may in
-turn be either base build roots or other derived roots.  This gives rise to the image of
-these base directories being arranged in layers, as in a cake.
+A major limitation of the methods presented in the Binary-package guide is that the target
+machines must have the same CHOST, CFLAGS, CXXFLAGS, and USE-flag settings as the host
+which builds the packages.  If the processors on the machines are of different
+generations, the processor-specific USE flags must follow the lowest common denominator.
 
-Layercake refers to all of these build-root directories, whether base or derived, as
-_layers_.  The program manages all needed filesystem mounts, including _overlayfs_ mounts;
-special mounts for `/dev`, `/proc`, and `/sys`; _bind_ mounts for `/usr/portage`; and other
-mounts as specified in the local configuration.
+Gentoo users are already familiar with using a _chroot_ in the process of setting up a
+Gentoo Linux system.  This ensures that the setup is done cleanly from the initial stage
+tarball.  In the same way, using a _chroot_ on the binary package host allows for
+generating a target configuration which varies significantly from that of the host
+system.  It also opens the possibility of having multiple build roots on the same build
+host, each with its own target configuration.
 
-Layercake also manages a directory containing symlinks to the respective
-`/var/lib/packages/` directories for the use of an HTTP server for the distribution of the
-binary packages.
+Layercake makes this easy to manage:
 
-Layers, though declared as being a part of a hierarchy, are stored in sibling directories in
-the filesystem.  For this reason directory names must be distinct.
+- Target systems may be configured differently than the build host
+
+- Manages multiple build roots on a single build host
+
+- Defaults to using the single system-wide Portage tree for all build roots; no need to
+sync individual trees
+
+- Supports similar system-wide sharing of other directories such as downloaded tarballs
+(_distfiles_ directory) and overlays
+
+- Mounts/unmounts directories such as `/dev`, `/proc`, `/sys`, and the Portage tree
+
+- Maintains symlinks needed for a web server to access package directores
+
+- Allows the user to set up parent/child relationships among build roots in order to
+avoid time- and space-consuming duplicate package builds
+
+- Automatically performs any needed mounts, including _overlayfs_ mounts, when the user
+issues the command to chroot into a build root
+
+[NOTE]
+The name _Layercake_ arises from the fact that the relationship between a build root and
+one that inherits from it be visualized as a pair of layers.  We generalize this by
+referring to all build roots as _layers_ whether or not a given build root is part of a
+parent/child relationship.
+
+[NOTE]
+Layercake currently has no support for cross compilation.  All build-time dependencies
+must be able to execute natively on the host machine.  This means that the CHOST and
+_-march_ settings in all layers must be compatable with the host hardware.
 
 == Basic Usage Patterns
 
-These steps assume the user has configured and initialized the Layercake installation.
+These steps assume the user has configured and initialized the Layercake installation in
+an operational Gentoo host environment.
 
 === Create, populate, and use a base layer
 
@@ -35,19 +65,24 @@ build directory.
 
 --------------------
 layercake add base
-layercake mkdirs base
 layercake shell base
 --------------------
 
-At this point the new build directory is empty; it is not ready for a chroot.  Now is the
-time to untar the stage3 package and configure Portage as indicated in the Gentoo Handbook.
+The second command is simply a shortcut method to change the directory to the layer's
+build directory without entering a chroot.  Here and now is the place and time to untar
+the stage3 tarball and configure _make.conf_ as indicated in the Gentoo Handbook.  Be
+sure the FEATURES variable includes the _buildpkg_ feature.
 
-Layercake automatically mounts the Portage tree as part of its preparation for entering a
-chroot, so there is no need to download the Portage tarball.  All that is needed is to
-create the mountpoint directory.  By default this is `/usr/portage`.
+Layercake mounts the Portage tree and other user-defined mounts as needed.  Rather than
+download Portage tree, the user needs to ensure the directory exists and that Layercake
+is configured to use it.  For this example we assume the configuration is correct; see
+<<layerconfig,Layer configuration>> for more information.
+
+Recent Stage3 tarballs already contain empty `/var/cache/distfiles` and
+`/var/cache/binpkgs` directories but not `/var/db/repos/gentoo`.  What we need is
 
 --------------------
-mkdir usr/portage
+mkdir /var/db/repos/gentoo
 --------------------
 
 In an similar way be sure to create other needed directories which Layercake may be
@@ -81,21 +116,71 @@ Immediately we can chroot into the new layer since the base layer is already set
 Edit the Portage configuration as necessary and build according to the new configuration
 with the confidence that the base layer remains unaltered.
 
+
+
+
+
+
+a build root may be visualized as layers  from other build
+roots.  These may be visualized as layers derived from other layers.
+Layercake supports setting up build roots which inherit from other build roots. This allows
+the user to build variant systems without having to rebuild most of the base packages in each
+variant system.  This feature uses the Linux _overlayfs_ filesystem.
+
+The user may set up multiple base build roots, each of which contains the whole layout of
+files for the build system.  Build roots which derive from other build roots--which may in
+turn be either base build roots or other derived roots.  This gives rise to the image of
+these base directories being arranged in layers, as in a cake.
+
+Layercake refers to all of these build-root directories, whether base or derived, as
+_layers_.  The program manages all needed filesystem mounts, including _overlayfs_ mounts;
+special mounts for `/dev`, `/proc`, and `/sys`; _bind_ mounts for `/usr/portage`; and other
+mounts as specified in the local configuration.
+
+Layercake also manages a directory containing symlinks to the respective
+`/var/lib/packages/` directories for the use of an HTTP server for the distribution of the
+binary packages.
+
+Layers, though declared as being a part of a hierarchy, are stored in sibling directories in
+the filesystem.  For this reason directory names must be distinct.
+
+
+
+== Layer configuration
+[[layerconfig]]
+
+The parent directory of the layer's build-root directory contains the _layerconfig_ file
+needed to configure the layer.  The `layercake add` command generates an initial version
+of this file; the user may edit it to suit.  In a fresh Layercake system
+
+Layercake automatically mounts the Portage tree and other user-defined mounts as part of
+its preparation for entering a chroot, so there is no need to download the Portage tarball.  All that is needed is to
+create the mountpoint directory.  By default this is `/usr/portage`.
+
+
+
 == Directory layout
 
 The directory tree shown here is relative to the Layercake base directory, which in the
-default configruation is `/var/www/binpackager`.
+default configuration is `/var/lib/layercake`.
 
-- layers:: Layer-description file (managed by Layercake)
-- build/:: Parent directory of per-layer build chroots
-* _layer1_:: First build chroot
-* _layer2_:: Second build chroot
-* ...
-- overlay_workdirs:: Overlayfs work directories
-- overlay_filedirs:: Overlayfs file directories
-- html :: Portage binhost root for serving packages to other Gentoo systems
-* index.html :: Index file for the benefit of anyone browsing this directory
-* _layer1_:: Symlink to the first layer's /var/lib/packages/
-* _layer2_:: Symlink to the second layer's /var/lib/packages/
-* ...
+[horizontal]
+layerconfig.skel:: Default layer-configuration file
+layers/:: Per-layer build/work/file directories
+- _name~1~/_: Entries for layer _name~1~_
+* layerconfig: Configuration for layer
+* build:/ Root build directory for layer
+* overlayfs/: Present in layers which derive from other layers
+** workdir/: _overlayfs_ work directory
+** upperdir/: _overlayfs_ upperdir directory
+* generated/: Downloadable generated files such as stage tarballs
+- _name~2~/_: Entries for layer _name~2~_
+- ...
+exports/:: Symlinks to data for export via web server or similar other means
+- _name~1~/_: Entries for layer _name~1~_
+** packages/: Binary packages
+** portage/: Layer's /etc/portage directory
+** generated/: Downloadable generated files such as stage tarballs
+- _name~2~/_: Entries for layer _name~2~_
+- ...
 

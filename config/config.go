@@ -8,74 +8,159 @@ import (
 	"path"
 	"bufio"
 	"strings"
-	"path/filepath"
 
 	"potano.layercake/fs"
+	"potano.layercake/defaults"
 )
 
 
-const (
-	default_layersfile = "layers"
-	default_build_root = "build"
-	default_overlayfs_workroot = "overlay_workdirs"
-	default_overlayfs_upperdirs = "overlay_filedirs"
-	default_html_root = "htdocs"
-	default_symlink_target = "/var/lib/packages"
-	default_base_bind_mount = "/usr/portage /usr/portage"
-)
+type ConfigType struct {
+	Basepath string
+	Layerdirs string
+	LayerBuildRoot string
+	LayerOvfsWorkdir string
+	LayerOvfsUpperdir string
+	Exportdirs string
+	ChrootExec string
+}
 
 
 const (
 	ss_value = iota
 	ss_file
 	ss_dir
-	ss_layerdir
 )
 
-type settingsetup struct {
+
+type cfsetup struct {
 	name string
 	s_type int
-	desc string
+	relative_to string
+	default_value string
 }
 
-var settingSetup = []settingsetup {
-	settingsetup{"basepath", ss_dir, "base directory for layercake system"},
-	settingsetup{"layersfile", ss_file, "name of file containing layer definitions"},
-	settingsetup{"buildroot", ss_layerdir, "directory containing build roots for each layer"},
-	settingsetup{"workroot", ss_layerdir, "directory containing overlayfs work directories"},
-	settingsetup{"upperroot", ss_layerdir, "directory containing overlayfs uppper directories"},
-	settingsetup{"htmlroot", ss_layerdir, "directory containing symlinks to packages"},
-	settingsetup{"htmllink", ss_value, "target of HTML symlink in build directory"},
-	settingsetup{"bindmount", ss_value, "bind mount into base-level layers"},
-	settingsetup{"chrootexec", ss_value, "path of chroot executable"},
+
+var settingSetup = []cfsetup {
+	cfsetup{"basepath", ss_dir, "", defaults.BasePath},
+	cfsetup{"configfile", ss_file, "basepath", defaults.MainConfigFile},
+	cfsetup{"layerdirs", ss_dir, "basepath", defaults.Layerdirs},
+	cfsetup{"buildroot", ss_value, "", defaults.Builddir},
+	cfsetup{"workdir", ss_value, "", defaults.Workdir},
+	cfsetup{"upperdir", ss_value, "", defaults.Upperdir},
+	cfsetup{"exportroot", ss_dir, "basepath", defaults.Exportdirs},
+	cfsetup{"chrootexec", ss_file, "", defaults.ChrootExec},
 }
 
-type ConfigType struct {
-	cfg map[string]string
-	paths map[string]string
-	haveAbspath bool
+
+func defaultSettingSetup() map[string]string {
+	setup := map[string]string{}
+	for _, v := range settingSetup {
+		setup[v.name] = v.default_value
+	}
+	return setup
 }
 
-func NewDefaultConfig() *ConfigType {
-	return &ConfigType{
-		cfg: map[string]string{
-			"layersfile": default_layersfile,
-			"buildroot": default_build_root,
-			"workroot": default_overlayfs_workroot,
-			"upperroot": default_overlayfs_upperdirs,
-			"htmlroot": default_html_root,
-			"htmllink": default_symlink_target,
-			"bindmount": default_base_bind_mount,
-			"chrootexec": "",
-		},
-		paths: map[string]string{},
+
+func mergeSettingSetup(target map[string]string, source map[string]string) {
+	for key, value := range source {
+		if len(target[key]) == 0 {
+			target[key] = value
+		}
 	}
 }
 
-func (cfg *ConfigType) ReadConfigFile(filename string) error {
+
+func patchPaths(cfg map[string]string) error {
+	for _, setup := range settingSetup {
+		key := setup.name
+		value := cfg[key]
+		if (setup.s_type != ss_dir && setup.s_type != ss_file) || len(value) < 1 {
+			continue
+		}
+		value = path.Clean(value)
+		if !path.IsAbs(value) {
+			relTo := cfg[setup.relative_to]
+			if len(relTo) < 1 || !path.IsAbs(relTo) {
+				return fmt.Errorf("No absolute path for setup element %s", key)
+			}
+			value = path.Join(relTo, value)
+		}
+		cfg[key] = value
+	}
+	return nil
+}
+
+
+func Load(configfile string, basepath string) (*ConfigType, error) {
+	setup := map[string]string{}
+
+	if len(basepath) < 1 {
+		basepath = os.Getenv("LAYERROOT")
+	}
+	setup["basepath"] = basepath
+
+	if len(configfile) < 1 {
+		var choices []string
+		fromenv := os.Getenv("LAYERCONF")
+		if len(fromenv) > 0 {
+			choices = append(choices, fromenv)
+		}
+		home := os.Getenv("HOME")
+		if len(home) > 0 {
+			choices = append(choices, home + "/.layercake")
+		}
+		parentdir := path.Dir(path.Dir(os.Args[0]))
+		if len(parentdir) > 0 {
+			choices = append(choices, parentdir + "/etc/layercake")
+			choices = append(choices, parentdir + "/etc/layercake.conf")
+		}
+		choices = append(choices, "/etc/layercake.conf")
+		for _, filepath := range choices {
+			if fs.IsFile(filepath) {
+				configfile = filepath
+				break
+			}
+		}
+	}
+
+	visited := map[string]bool{}
+	for len(configfile) > 0 {
+		if _, seen := visited[configfile]; seen {
+			return nil, fmt.Errorf("Config-file loop: have seen %s", configfile)
+		}
+		visited[configfile] = true
+		fileSetup, err := readConfigFile(configfile);
+		if err != nil {
+			return nil, err
+		}
+		mergeSettingSetup(setup, fileSetup)
+		configfile = fileSetup["configfile"]
+	}
+
+	defaultSetup := defaultSettingSetup()
+	mergeSettingSetup(setup, defaultSetup)
+	if err := patchPaths(setup); err != nil {
+		return nil, err
+	}
+
+	cfg := &ConfigType{
+		Basepath: setup["basepath"],
+		Layerdirs: setup["layerdirs"],
+		LayerBuildRoot: setup["buildroot"],
+		LayerOvfsWorkdir: setup["workdir"],
+		LayerOvfsUpperdir: setup["upperdir"],
+		Exportdirs: setup["exportroot"],
+		ChrootExec: setup["chrootexec"],
+	}
+	return cfg, nil
+}
+
+
+func readConfigFile(filename string) (map[string]string, error) {
+	cfg := map[string]string{}
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0666)
 	if nil != err {
-		return err
+		return cfg, err
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
@@ -96,85 +181,59 @@ func (cfg *ConfigType) ReadConfigFile(filename string) error {
 			continue
 		}
 		var key string
-		switch strings.Trim(parts[0], " \t") {
+		switch strings.ToUpper(strings.Trim(parts[0], " \t")) {
 		case "BASEPATH":
 			key = "basepath"
-		case "LAYERSFILE", "LAYERS":
-			key = "layersfile"
+		case "CONFIGFILE", "CONFIG_FILE":
+			key = "configfile"
+		case "LAYERS":
+			key = "layerdirs"
 		case "BUILDROOT":
 			key = "buildroot"
-		case "OVERFS_WORKROOT", "WORKROOT", "WORKDIRS":
-			key = "workroot"
-		case "OVERFS_UPPERDIRS", "UPPERROOT", "UPPERDIRS":
-			key = "upperroot"
-		case "HTML_DIR", "HTMLROOT", "HTMLDIRS":
-			key = "htmlroot"
-		case "HTML_SYMLINK_TARGET":
-			key = "htmllink"
-		case "BASE_BIND_MOUNT":
-			key = "bindmount"
+		case "OVERFS_WORKDIR", "WORKDIR":
+			key = "workdir"
+		case "OVERFS_UPPERDIR", "UPPERDIR":
+			key = "upperdir"
+		case "EXPORT_DIR", "EXPORT_ROOT", "EXPORTDIR", "EXPORTROOT":
+			key = "exportroot"
 		case "CHROOT_EXEC":
 			key = "chrootexec"
 		default:
-			return fmt.Errorf("Unrecognized setting '%s' in %s at line %d", parts[0],
-				filename, lineno)
+			return cfg, fmt.Errorf("Unrecognized setting '%s' in %s at line %d",
+				parts[0], filename, lineno)
 		}
-		cfg.cfg[key] = val
+		cfg[key] = val
 	}
 	err = scanner.Err()
 	if nil != err {
-		return fmt.Errorf("%s reading %s line %s", err, filename, lineno)
+		return cfg, fmt.Errorf("%s reading %s line %s", err, filename, lineno)
 	}
-	return nil
-}
-
-func (cfg *ConfigType) Set(key, value string) {
-	cfg.cfg[key] = value
-}
-
-func (cfg *ConfigType) GetCfg(key string) string {
-	return cfg.cfg[key]
-}
-
-func (cfg *ConfigType) GetPath(key string) string {
-	return cfg.paths[key]
-}
-
-func (cfg *ConfigType) GetDirPaths() []string {
-	out := make([]string, 0, 4)
-	for _, item := range settingSetup {
-		if item.s_type == ss_layerdir || item.s_type == ss_dir {
-			out = append(out, cfg.paths[item.name])
-		}
+	err = patchPaths(cfg)
+	if nil != err {
+		return cfg, err
 	}
-	return out
+	return cfg, nil
 }
 
-func (cfg *ConfigType) CheckConfigPaths() (missing []string, haveAbsPath bool) {
-	basepath := cfg.cfg["basepath"]
-	for _, item := range settingSetup {
-		if ss_value == item.s_type {
-			continue
-		}
-		name := item.name
-		val := cfg.cfg[name]
-		if len(val) < 0 {
+
+func (cfg *ConfigType) CheckConfigPaths() (missing []string, haveNonBasePaths bool) {
+	missing = make([]string, 0, 3)
+	if !fs.IsDir(cfg.Basepath) {
+		missing = append(missing, cfg.Basepath)
+	}
+	dirsToCheck := []string{cfg.Layerdirs, cfg.Exportdirs}
+	for _, name := range dirsToCheck {
+		if !fs.IsDir(name) {
 			missing = append(missing, name)
-			continue
-		}
-		if path.IsAbs(val) {
-			if ss_dir != item.s_type {
-				haveAbsPath = true
-			}
 		} else {
-			val = filepath.Clean(basepath + "/" + val)
+			isDescendant, err := fs.IsDescendant(cfg.Basepath, name)
+			if err != nil {
+				missing = append(missing, name)
+			} else if !isDescendant {
+				haveNonBasePaths = true
+			}
 		}
-		if !fs.IsFileOrDir(val, ss_file == item.s_type) {
-			missing = append(missing, name)
-		}
-		cfg.paths[name] = val
 	}
-	cfg.haveAbspath = haveAbsPath
 	return
 }
 
