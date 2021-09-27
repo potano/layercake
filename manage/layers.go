@@ -69,23 +69,14 @@ func (ld *Layerdefs) Layers() []*Layerinfo {
 	return layers
 }
 
+func (ld *Layerdefs) Layer(name string) *Layerinfo {
+	return ld.layermap[name]
+}
+
 func (ld *Layerdefs) DescribeState(li *Layerinfo, detailed bool) []string {
-	desc := layerstateDescriptions[li.State]
-	if len(li.Messages) > 0 {
-		if "error" == desc {
-			desc = li.Messages[0]
-			if len(li.Messages) > 1 && !detailed {
-				desc += fmt.Sprintf(" plus %d other error(s)", len(li.Messages))
-			}
-		} else if len(li.Messages) > 0 {
-			desc += "; " + li.Messages[0]
-		}
-	}
-	out := []string{desc}
+	out := []string{layerstateDescriptions[li.State]}
 	if detailed {
-		if len(li.Messages) > 1 {
-			out = append(out, li.Messages[1:]...)
-		}
+		out = append(out, li.Messages...)
 		mnts := ld.describeMounts(li, "  ")
 		if len(mnts) > 0 {
 			out = append(out, "Mounts:")

@@ -3,7 +3,6 @@ package manage
 import (
 	"fmt"
 	"path"
-	"strings"
 
 	"potano.layercake/fs"
 	"potano.layercake/config"
@@ -202,10 +201,11 @@ func minimalBuildDirsPresent(buildroot string) bool {
 func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 	builddir := ld.buildPath(layer)
 	layer.Mounts = mounts.GetMountAndSubmounts(builddir)
-	if layer.State <= Layerstate_complete {
+	if layer.State < Layerstate_complete {
 		return
 	}
 	layer.State = Layerstate_complete
+	layer.Messages = []string{}
 
 	base := layer.Base
 	numMounted := 0
@@ -221,21 +221,21 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 			return
 		}
 		if mnt.Fstype != "overlay" {
-			layer.addMessage("Mounted but not as overlayfs")
+			layer.addMessage("mounted but not as overlayfs")
 			layer.State = Layerstate_error
 			return
 		}
 		ovfsError := false
 		if mnt.Source != ld.buildPath(baseLayer) {
-			layer.addMessage("Wrong parent directory mounted")
+			layer.addMessage("wrong parent directory mounted")
 			ovfsError = true
 		}
 		if mnt.Source2 != ld.ovfsUpperPath(layer) {
-			layer.addMessage("Wrong upper directory mounted")
+			layer.addMessage("wrong upper directory mounted")
 			ovfsError = true
 		}
 		if mnt.Workdir != ld.ovfsWorkPath(layer) {
-			layer.addMessage("Wrong work directory mounted")
+			layer.addMessage("wrong work directory mounted")
 			ovfsError = true
 		}
 		if ovfsError {
@@ -250,7 +250,7 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 	layer.State = Layerstate_inhabited
 
 	missingMountpoints := []string{}
-	incorrectMounts := []string{}
+	incorrectMounts := []NeededMountType{}
 	fsErrors := []string{}
 
 	for _, pair := range layer.ConfigMounts {
@@ -265,7 +265,7 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 		}
 		numMounted++
 		if mnt.Source != pair.Source {
-			incorrectMounts = append(incorrectMounts, pair.Mount)
+			incorrectMounts = append(incorrectMounts, pair)
 		}
 	}
 	// Note that we don't count missing export symlinks to be errors.  Mounting creates them
@@ -276,7 +276,7 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 			continue
 		}
 		if !isDescendant {
-			incorrectMounts = append(incorrectMounts, pair.Mount)
+			incorrectMounts = append(incorrectMounts, pair)
 			continue
 		}
 		if !fs.Exists(pair.Mount) {
@@ -290,19 +290,19 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 				continue
 			}
 			if pair.Mount != linktarg {
-				incorrectMounts = append(incorrectMounts, pair.Mount)
+				incorrectMounts = append(incorrectMounts, pair)
 			}
 		}
 	}
 
-	if len(missingMountpoints) > 0 {
-		layer.addMessage("Missing mountpoints: " + strings.Join(missingMountpoints, ", "))
+	for _, msg := range fsErrors {
+		layer.addMessage("error probing symlink: " + msg)
 	}
-	if len(incorrectMounts) > 0 {
-		layer.addMessage("Wrong-source mountpoints: " + strings.Join(incorrectMounts, ", "))
+	for _, pair := range incorrectMounts {
+		layer.addMessagef("%s has wrong mount source %s", pair.Mount, pair.Source)
 	}
-	if len(fsErrors) > 0 {
-		layer.addMessage("Errors probing symlinks: " + strings.Join(fsErrors, ", "))
+	for _, msg := range missingMountpoints {
+		layer.addMessage("missing mountpoint: " + msg)
 	}
 
 	if len(incorrectMounts) > 0 || len(fsErrors) > 0 {

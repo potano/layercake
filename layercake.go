@@ -172,10 +172,18 @@ func (ci commandInfo) getArgs(minNeeded, maxNeeded int) []string {
 }
 
 
-func (ci commandInfo) getLayers() *manage.Layerdefs {
+func (ci commandInfo) failOnMissingBaseSetup() {
 	if len(ci.missing) > 0 {
-		fatal("Base directory not set up--cannot proceed")
+		for _, name := range ci.missing {
+			fmt.Fprintf(os.Stderr, "Base directory %s is missing\n", name)
+		}
+		fatal("Cannot proceed unless all base directories exist")
 	}
+}
+
+
+func (ci commandInfo) getLayers() *manage.Layerdefs {
+	ci.failOnMissingBaseSetup()
 	layers, err := manage.FindLayers(ci.cfg, ci.opts)
 	if nil != err {
 		fatal(err.Error())
@@ -232,21 +240,35 @@ func initCommand(cmdinfo commandInfo) {
 
 
 func statusCommand(cmdinfo commandInfo) {
-	cmdinfo.getArgs(0, 0)
-	if len(cmdinfo.missing) == 0 {
-		fns.ShowStatus(cmdinfo.cfg)
-	} else if len(cmdinfo.missing) < 3 {
-		for _, name := range cmdinfo.missing {
-			fmt.Printf("Directory %s is missing\n", name)
+	args := cmdinfo.getArgs(0, 1)
+	cmdinfo.failOnMissingBaseSetup()
+	if len(args[0]) == 0 {
+		fmt.Printf("Base directories set up OK at %s\n", cmdinfo.cfg.Basepath)
+		if cmdinfo.isDefaultCommand {
+			fmt.Println("Use --help switch for command usage")
 		}
-		fatal("Cannot proceed unless all base directores exist")
-	} else if cmdinfo.haveNonBasePaths {
-		fmt.Println("Base directories/layers file not set up; need manual setup")
-	} else {
-		fmt.Println("Base directory not set up; init command creates them")
+		return
 	}
-	if cmdinfo.isDefaultCommand {
-		fmt.Println("Use --help switch for command usage")
+
+	name := args[0]
+	layers := cmdinfo.getLayers()
+	layer := layers.Layer(name)
+	if layer == nil {
+		fatal("Layer %s not found", name)
+	}
+	if len(layer.Base) > 0 {
+		fmt.Printf("Layer: %s\nParent layer: %s\n", name, layer.Base)
+	} else {
+		fmt.Printf("Base layer: %s\n", name)
+	}
+	info := layers.DescribeState(layer, true)
+	fmt.Printf("State: %s\n", info[0])
+
+	if len(info) > 1 {
+		fmt.Println("")
+		for _, line := range info[1:] {
+			fmt.Println(line)
+		}
 	}
 }
 
