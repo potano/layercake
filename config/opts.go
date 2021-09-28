@@ -41,10 +41,14 @@ func (o *Opts) AddFlagsToFlagset(fs *flag.FlagSet) {
 
 func (o *Opts) MakePretender() func (string, ...interface{}) bool {
 	doIt := !o.Pretend
+	prefix := "action: "
+	if o.Pretend {
+		prefix = "would "
+	}
 	if o.Debug {
 		writer := o.Writer
 		return func (msg string, parms...interface{}) bool {
-			writer(fmt.Sprintf(msg, parms...))
+			writer(fmt.Sprintf(prefix + msg, parms...))
 			return doIt
 		}
 	}

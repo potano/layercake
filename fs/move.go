@@ -6,26 +6,9 @@ import (
 	"syscall"
 )
 
-func Cd(dir string) error {
-	err := os.Chdir(dir)
-	if nil != err {
-		return fmt.Errorf("%s attempting chdir to %s", err, dir)
-	}
-	return nil
-}
-
-func Mkdir(dir string) error {
-	if WriteOK("mkdir(%s)", dir) {
-		err := os.Mkdir(dir, 0755)
-		if nil != err {
-			return fmt.Errorf("%s attempting mkdir of %s", err, dir)
-		}
-	}
-	return nil
-}
 
 func Symlink(from, to string) error {
-	if WriteOK("symlink(%s, %s)", from, to) {
+	if WriteOK("symlink source=%s target=%s", from, to) {
 		err := os.Symlink(to, from)
 		if nil != err {
 			return fmt.Errorf("%s making symlink %s", err, from)
@@ -35,21 +18,21 @@ func Symlink(from, to string) error {
 }
 
 func Rename(source, target string) error {
-	if WriteOK("mv(%s, %s)", source, target) {
+	if WriteOK("rename %s to %s", source, target) {
 		return os.Rename(source, target)
 	}
 	return nil
 }
 
 func Remove(target string) error {
-	if WriteOK("rm(%s)", target) {
+	if WriteOK("remove %s", target) {
 		return os.RemoveAll(target)
 	}
 	return nil
 }
 
 func Mount(source, target, fstype, options string) error {
-	if WriteOK("mount --type %s %s %s", fstype, source, target) {
+	if WriteOK("mount type=%s source=%s target=%s", fstype, source, target) {
 		var flags uintptr
 		switch fstype {
 		case "bind":
@@ -68,7 +51,7 @@ func Mount(source, target, fstype, options string) error {
 }
 
 func Unmount(mounted string, force bool) error {
-	if WriteOK("umount %s (force=%v)", mounted, force) {
+	if WriteOK("umount directory=%s force=%v", mounted, force) {
 		var flags int
 		if force {
 			flags |= syscall.MNT_FORCE

@@ -7,17 +7,28 @@ import (
 )
 
 
-func MakeDir(dirname string) (bool, error) {
-	if IsDir(dirname) {
-		return false, nil
+func Cd(dir string) error {
+	err := os.Chdir(dir)
+	if nil != err {
+		return err
 	}
-	err := os.Mkdir(dirname, 0755)
-	return true, err
+	return nil
+}
+
+
+func Mkdir(dir string) error {
+	if WriteOK("mkdir %s", dir) {
+		err := os.Mkdir(dir, 0755)
+		if nil != err {
+			return err
+		}
+	}
+	return nil
 }
 
 
 func WriteTextFile(filename, contents string) error {
-	if !WriteOK("writing text file %s", filename) {
+	if !WriteOK("write text file %s", filename) {
 		return nil
 	}
 	if !IsFile(filename) {

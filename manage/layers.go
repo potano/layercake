@@ -61,6 +61,8 @@ type Layerinfo struct {
 	Mounts fs.Mounts
 }
 
+
+
 func (ld *Layerdefs) Layers() []*Layerinfo {
 	layers := make([]*Layerinfo, len(ld.normalizedOrder))
 	for i, name := range ld.normalizedOrder {
@@ -69,9 +71,11 @@ func (ld *Layerdefs) Layers() []*Layerinfo {
 	return layers
 }
 
+
 func (ld *Layerdefs) Layer(name string) *Layerinfo {
 	return ld.layermap[name]
 }
+
 
 func (ld *Layerdefs) DescribeState(li *Layerinfo, detailed bool) []string {
 	out := []string{layerstateDescriptions[li.State]}
@@ -88,6 +92,7 @@ func (ld *Layerdefs) DescribeState(li *Layerinfo, detailed bool) []string {
 	}
 	return out
 }
+
 
 func (ld *Layerdefs) describeMounts(li *Layerinfo, leftpad string) (out []string) {
 	if len(li.Mounts) == 0 {

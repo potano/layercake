@@ -111,7 +111,6 @@ func Load(configfile string, basepath string) (*ConfigType, error) {
 		}
 		parentdir := path.Dir(path.Dir(os.Args[0]))
 		if len(parentdir) > 0 {
-			choices = append(choices, parentdir + "/etc/layercake")
 			choices = append(choices, parentdir + "/etc/layercake.conf")
 		}
 		choices = append(choices, "/etc/layercake.conf")
@@ -217,11 +216,11 @@ func readConfigFile(filename string) (map[string]string, error) {
 
 
 func (cfg *ConfigType) CheckConfigPaths() (missing []string, haveNonBasePaths bool) {
-	missing = make([]string, 0, 3)
+	dirsToCheck := []string{cfg.Layerdirs, cfg.Exportdirs}
+	missing = make([]string, 0, len(dirsToCheck) + 1)
 	if !fs.IsDir(cfg.Basepath) {
 		missing = append(missing, cfg.Basepath)
 	}
-	dirsToCheck := []string{cfg.Layerdirs, cfg.Exportdirs}
 	for _, name := range dirsToCheck {
 		if !fs.IsDir(name) {
 			missing = append(missing, name)

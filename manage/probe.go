@@ -250,6 +250,7 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 	layer.State = Layerstate_inhabited
 
 	missingMountpoints := []string{}
+	missingMountSources := []string{}
 	incorrectMounts := []NeededMountType{}
 	fsErrors := []string{}
 
@@ -257,6 +258,10 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 		target := path.Join(builddir, pair.Mount)
 		if !fs.Exists(target) {
 			missingMountpoints = append(missingMountpoints, pair.Mount)
+			continue
+		}
+		if path.IsAbs(pair.Source) && !fs.Exists(pair.Source) {
+			missingMountSources = append(missingMountSources, pair.Source)
 			continue
 		}
 		mnt := layer.Mounts.GetMount(target)
@@ -304,13 +309,16 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 	for _, msg := range missingMountpoints {
 		layer.addMessage("missing mountpoint: " + msg)
 	}
+	for _, msg := range missingMountSources {
+		layer.addMessage("missing mountpoint source: " + msg)
+	}
 
 	if len(incorrectMounts) > 0 || len(fsErrors) > 0 {
 		layer.State = Layerstate_error
 		return
 	}
 
-	if len(missingMountpoints) > 0 {
+	if len(missingMountpoints) > 0 || len(missingMountSources) > 0 {
 		return
 	}
 

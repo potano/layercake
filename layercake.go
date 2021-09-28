@@ -147,8 +147,12 @@ type commandInfo struct {
 func (ci commandInfo) getArgs(minNeeded, maxNeeded int) []string {
 	args := ci.args
 	ci.args = []string{}
+	firstPass := true
 	for len(args) > 0 {
-		ci.args = append(ci.args, args[0])
+		if !firstPass {
+			ci.args = append(ci.args, args[0])
+		}
+		firstPass = false
 		flagset := flag.NewFlagSet("", flag.ExitOnError)
 		ci.opts.AddFlagsToFlagset(flagset)
 		ci.sw.AddFlagsToFlagset(flagset)
@@ -156,7 +160,7 @@ func (ci commandInfo) getArgs(minNeeded, maxNeeded int) []string {
 		flagset.Parse(args[1:])
 		args = flagset.Args()
 	}
-	args = ci.args[1:]
+	args = ci.args
 	if len(args) < minNeeded {
 		fatal("Not enough command-line arguments (need %d)", minNeeded)
 	}
@@ -221,7 +225,7 @@ func initCommand(cmdinfo commandInfo) {
 		fatal("At least one base element has an absolute path: need manual setup")
 	}
 	for _, dir := range cmdinfo.missing {
-		_, err := fs.MakeDir(dir)
+		err := fs.Mkdir(dir)
 		if nil != err {
 			fatal("%s creating directory %s", err, dir)
 		}

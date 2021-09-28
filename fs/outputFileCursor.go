@@ -16,7 +16,7 @@ type TextOutputFileCursor struct {
 
 func NewTextOutputFileCursor(filename string) (*TextOutputFileCursor, error) {
 	cursor := &TextOutputFileCursor{filename: filename}
-	if WriteOK("writing text file %s", filename) {
+	if WriteOK("write text file %s", filename) {
 		fh, err := os.OpenFile(filename, os.O_RDWR|os.O_TRUNC|os.O_CREATE, 0666)
 		if nil != err {
 			return nil, err
