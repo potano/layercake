@@ -98,35 +98,6 @@ func (layers *Layerdefs) ovfsUpperPath(layer *Layerinfo) string {
 	return path.Join(layer.LayerPath, layers.cfg.LayerOvfsUpperdir)
 }
 
-func (layers *Layerdefs) layerExportDir(layer *Layerinfo) string {
-	return path.Join(layers.cfg.Exportdirs, layer.Name)
-}
-
-func (layers *Layerdefs) expandLayerExportEndpoints(layer *Layerinfo) []NeededMountType {
-	out := []NeededMountType{}
-	for _, mount := range layer.ConfigExports {
-		source := mount.Source
-		target := mount.Mount
-		if !path.IsAbs(source) {
-			source, ok := defaults.ExportDirEntries[target]
-			if !ok {
-				continue
-			}
-			source = path.Join(layers.cfg.Exportdirs, layer.Name, source)
-		}
-		if path.IsAbs(target) {
-			source = path.Join(layer.LayerPath, layers.cfg.LayerBuildRoot, target)
-		} else if target == defaults.Generateddir {
-			target = path.Join(layer.LayerPath, target)
-		} else {
-			continue
-		}
-		mount.Source = source
-		mount.Mount = target
-		out = append(out, mount)
-	}
-	return out
-}
 
 
 
@@ -139,8 +110,21 @@ func (layer *Layerinfo) addMessagef(base string, params...interface{}) {
 }
 
 
+func (ld *Layerdefs) refreshMountInfo() error {
+	mounts, err := fs.ProbeMounts()
+	if err != nil {
+		return err
+	}
+	ld.mounts = mounts
+	return nil
+}
 
-func (ld *Layerdefs) ProbeAllLayerstate(mounts fs.Mounts, inuse map[string]int) error {
+
+func (ld *Layerdefs) ProbeAllLayerstate(inuse map[string]int) error {
+	err := ld.refreshMountInfo()
+	if err != nil {
+		return err
+	}
 	for _, layer := range ld.Layers() {
 		if layer.State == Layerstate_error {
 			continue
@@ -181,7 +165,7 @@ func (ld *Layerdefs) ProbeAllLayerstate(mounts fs.Mounts, inuse map[string]int) 
 
 		layer.State = Layerstate_complete
 
-		ld.findLayerstate(layer, mounts)
+		ld.findLayerstate(layer)
 	}
 	return nil
 }
@@ -198,9 +182,9 @@ func minimalBuildDirsPresent(buildroot string) bool {
 }
 
 
-func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
+func (ld *Layerdefs) findLayerstate(layer *Layerinfo) {
 	builddir := ld.buildPath(layer)
-	layer.Mounts = mounts.GetMountAndSubmounts(builddir)
+	layer.Mounts = ld.mounts.GetMountAndSubmounts(builddir)
 	if layer.State < Layerstate_complete {
 		return
 	}
@@ -216,7 +200,7 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 		if baseLayer.State < Layerstate_mountable {
 			return
 		}
-		mnt := layer.Mounts.GetMount(builddir)
+		mnt := ld.mounts.GetMount(builddir)
 		if nil == mnt {
 			return
 		}
@@ -264,18 +248,22 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 			missingMountSources = append(missingMountSources, pair.Source)
 			continue
 		}
-		mnt := layer.Mounts.GetMount(target)
+		mnt := ld.mounts.GetMount(target)
 		if mnt == nil {
 			continue
 		}
 		numMounted++
-		if mnt.Source != pair.Source {
+		if !ld.mounts.MountSourceIsExpected(mnt, pair.Source) {
 			incorrectMounts = append(incorrectMounts, pair)
 		}
 	}
 	// Note that we don't count missing export symlinks to be errors.  Mounting creates them
-	for _, pair := range ld.expandLayerExportEndpoints(layer) {
-		isDescendant, err := fs.IsDescendant(builddir, pair.Mount)
+	exports, err := ld.expandLayerExportEndpoints(layer)
+	if err != nil {
+		fsErrors = append(fsErrors, err.Error())
+	}
+	for _, pair := range exports {
+		isDescendant, err := fs.IsDescendant(builddir, pair.Source)
 		if err != nil {
 			fsErrors = append(fsErrors, err.Error())
 			continue
@@ -284,17 +272,17 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 			incorrectMounts = append(incorrectMounts, pair)
 			continue
 		}
-		if !fs.Exists(pair.Mount) {
-			missingMountpoints = append(missingMountpoints, pair.Mount)
+		if !fs.Exists(pair.Source) {
+			missingMountpoints = append(missingMountpoints, pair.Source)
 			continue
 		}
-		if fs.IsSymlink(pair.Source) {
-			linktarg, err := fs.Readlink(pair.Source)
+		if fs.IsSymlink(pair.Mount) {
+			linktarg, err := fs.Readlink(pair.Mount)
 			if err != nil {
 				fsErrors = append(fsErrors, err.Error())
 				continue
 			}
-			if pair.Mount != linktarg {
+			if pair.Source!= linktarg {
 				incorrectMounts = append(incorrectMounts, pair)
 			}
 		}
@@ -310,7 +298,7 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo, mounts fs.Mounts) {
 		layer.addMessage("missing mountpoint: " + msg)
 	}
 	for _, msg := range missingMountSources {
-		layer.addMessage("missing mountpoint source: " + msg)
+		layer.addMessage("missing host directory: " + msg)
 	}
 
 	if len(incorrectMounts) > 0 || len(fsErrors) > 0 {

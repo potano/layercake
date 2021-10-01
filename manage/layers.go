@@ -20,6 +20,7 @@ type Layerdefs struct {
 	baselayers []string
 	cfg *config.ConfigType
 	opts *config.Opts
+	mounts fs.Mounts
 }
 
 const (
@@ -38,7 +39,7 @@ var layerstateDescriptions []string = []string{
 	"error",
 	"incomplete setup",
 	"not yet populated",
-	"all directories complete",
+	"build directories set up",
 	"mountable",
 	"partially mounted",
 	"mounted and ready",
@@ -58,7 +59,7 @@ type Layerinfo struct {
 	State int
 	Messages []string
 	Busy, Chroot bool
-	Mounts fs.Mounts
+	Mounts []*fs.MountType
 }
 
 
@@ -98,54 +99,28 @@ func (ld *Layerdefs) describeMounts(li *Layerinfo, leftpad string) (out []string
 	if len(li.Mounts) == 0 {
 		return
 	}
-	var haveOverlay bool
-	var other []string
-	prefixes := map[string]string{}
-	buildpath := ld.buildPath(li)
-	lenBuildpath := len(buildpath)
+	mounts := map[string]*fs.MountType{}
 	for _, mnt := range li.Mounts {
-		if len(mnt.Source2) > 0 && mnt.Mountpoint == buildpath {
-			haveOverlay = true
-		} else {
-			found := false
-			for _, nbm := range li.ConfigMounts {
-				mp := path.Join(buildpath, nbm.Mount)
-				if mp == mnt.Mountpoint {
-					found = true
-					prefixes[nbm.Source] = mnt.Mountpoint
-					break
-				}
-			}
-			if !found {
-				for _, mp := range prefixes {
-					if strings.HasPrefix(mnt.Mountpoint, mp) {
-						found = true
-						break
-					}
-				}
-			}
-			if !found {
-				srcpath := mnt.Source
-				if strings.HasPrefix(srcpath, buildpath) {
-					srcpath = srcpath[:lenBuildpath]
-				}
-				other = append(other, srcpath)
-			}
+		mounts[mnt.Mountpoint] = mnt
+	}
+	buildpath := ld.buildPath(li)
+	base := []string{}
+	for _, cm := range li.ConfigMounts {
+		mt := path.Join(buildpath, cm.Mount)
+		if _, exists := mounts[mt]; exists {
+			base = append(base, cm.Mount)
+			delete(mounts, mt)
 		}
 	}
-	if len(prefixes) > 0 {
-		basemounts := make([]string, 0, len(prefixes))
-		for _, nbm := range li.Mounts {
-			basemounts = append(basemounts, nbm.Source)
-		}
-		out = append(out, leftpad + "required: " +
-			strings.Join(basemounts, ", "))
+	if len(base) > 0 {
+		out = append(out, leftpad + "required: " + strings.Join(base, ", "))
 	}
-	if haveOverlay {
+	if _, exists := mounts[buildpath]; exists {
 		out = append(out, leftpad + "overlayfs")
+		delete(mounts, buildpath)
 	}
-	for _, src := range other {
-		out = append(out, leftpad + src)
+	for _, mnt := range mounts {
+		out = append(out, leftpad + mnt.Mountpoint)
 	}
 	return
 }
@@ -195,7 +170,7 @@ func (ld *Layerdefs) AddLayer(name, base, configFile string) error {
 	layer.Name = name
 	layer.Base = base
 	layer.LayerPath = ld.layerPath(name)
-	layer.Mounts = fs.Mounts{}
+	layer.Mounts = []*fs.MountType{}
 
 	err = fs.Mkdir(layer.LayerPath)
 	if err != nil {
@@ -300,36 +275,6 @@ func (ld *Layerdefs) RemoveLayer(name string, removeFiles bool) error {
 
 	delete(ld.layermap, name)
 	ld.normalizeOrder()
-	return nil
-}
-
-
-func (ld *Layerdefs) removeLayerExportLinks(li *Layerinfo) error {
-	exportdir := ld.layerExportDir(li)
-	files, err := fs.Readdirnames(exportdir)
-	if err != nil {
-		return err
-	}
-	haveNonSymlink := false
-	for _, name := range files {
-		name = path.Join(exportdir, name)
-		if fs.IsSymlink(name) {
-			err := fs.Remove(name)
-			if err != nil {
-				return err
-			}
-		} else {
-			haveNonSymlink = true
-		}
-	}
-	if haveNonSymlink {
-		return fmt.Errorf("Export directory %s contains non-symlinks; cannot remove",
-			exportdir)
-	}
-	err = fs.Remove(exportdir)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -481,25 +426,12 @@ func (ld *Layerdefs) Makedirs(name string) error {
 				return err
 			}
 		}
-		ld.findLayerstate(layer, layer.Mounts)
+		ld.findLayerstate(layer)
 	}
 
-	exportDir := ld.layerExportDir(layer)
-	if !fs.IsDir(exportDir) {
-		err = fs.Mkdir(exportDir)
-		if err != nil {
-			return err
-		}
-	}
-	endpoints := ld.expandLayerExportEndpoints(layer)
-	for _, pair := range endpoints {
-		linkTarget := pair.Mount
-		exportLink := pair.Source
-		if !fs.IsSymlink(exportLink) {
-			if err := fs.Symlink(exportLink, linkTarget); nil != err {
-				return err
-			}
-		}
+	err = ld.makeExportSymlinks(layer)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -520,11 +452,9 @@ func (ld *Layerdefs) Mount(name string) error {
 		return err
 	}
 	for _, layer := range ancestors {
-		if layer.State < Layerstate_mountable {
-			err = ld.Makedirs(layer.Name)
-			if nil != err {
-				return err
-			}
+		err = ld.Makedirs(layer.Name)
+		if nil != err {
+			return err
 		}
 	}
 	for _, layer := range ancestors {
@@ -544,7 +474,7 @@ func (ld *Layerdefs) mountOne(layer *Layerinfo) error {
 	}
 	builddir := ld.buildPath(layer)
 	if len(layer.Base) > 0 {
-		if nil == layer.Mounts.GetMount(builddir) {
+		if nil == ld.mounts.GetMount(builddir) {
 			basedir := ld.buildPath(ld.layermap[layer.Base])
 			workdir := ld.ovfsWorkPath(layer)
 			upperdir := ld.ovfsUpperPath(layer)
@@ -558,14 +488,18 @@ func (ld *Layerdefs) mountOne(layer *Layerinfo) error {
 	}
 	for _, m := range layer.ConfigMounts {
 		mountpoint := path.Join(builddir, m.Mount)
-		if nil == layer.Mounts.GetMount(mountpoint) {
+		if nil == ld.mounts.GetMount(mountpoint) {
 			err := fs.Mount(m.Source, mountpoint, m.Fstype, "")
 			if nil != err {
 				return err
 			}
 		}
 	}
-	layer.State = Layerstate_mounted
+	err := ld.refreshMountInfo()
+	if err != nil {
+		return err
+	}
+	ld.findLayerstate(layer)
 	return nil
 }
 
@@ -634,11 +568,11 @@ func (ld *Layerdefs) unmountLayer(name string) (int, error) {
 			return Unmount_status_error, err
 		}
 	}
-	mounts, err := fs.ProbeMounts()
+	err = ld.refreshMountInfo()
 	if err != nil {
 		return Unmount_status_error, err
 	}
-	ld.findLayerstate(layer, mounts)
+	ld.findLayerstate(layer)
 	return Unmount_status_ok, nil
 }
 

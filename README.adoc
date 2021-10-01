@@ -177,10 +177,15 @@ layers/:: Per-layer build/work/file directories
 - _name~2~/_: Entries for layer _name~2~_
 - ...
 exports/:: Symlinks to data for export via web server or similar other means
-- _name~1~/_: Entries for layer _name~1~_
-** packages/: Binary packages
-** portage/: Layer's /etc/portage directory
-** generated/: Downloadable generated files such as stage tarballs
-- _name~2~/_: Entries for layer _name~2~_
-- ...
+- index.html: Index file for service via an HTTPd
+- packages/: Directory of symlinks to binary packages
+* _name~1~/_: Symlink to layer _name~1~_ packages directory
+* ...
+- build/: Directory of symlinks to build roots
+* _name~1~/_: Symlink to layer _name~1~_ build root
+* ...
+- generated/: Directory of symlinks to downloadable generated files
+* _name~1~/_: Symlink to layer _name~1~_ generated files
+* ...
+
 

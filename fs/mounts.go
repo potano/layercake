@@ -4,133 +4,193 @@ import (
 	"os"
 	"bufio"
 	"strings"
+
+	"potano.layercake/defaults"
 )
+
 
 type MountType struct {
 	Source, Mountpoint string
 	Source2, Workdir string
 	Fstype string
 	Options string
+	st_dev string
+	root string
 }
 
-type Mounts []MountType
+type deviceType struct {
+	name string
+	roots []string
+}
+
+type Mounts struct {
+	mount_list []MountType
+	device_list []deviceType
+	mounts map[string]*MountType
+	devices map[string]*deviceType
+}
 
 
-//ProbeMounts discovers the mounts in the current system using information at /proc/mounts.
-//Format of these lines is described in the man page for getmntent(3)
+/*  Extracts mount information from /proc/self/mountinfo
+ *  Line format is documented in Documentation/filesystems/proc.txt in the Linux tarball:
+ *    36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw,errors=continue
+ *    (1)(2)(3)   (4)   (5)      (6)      (7)   (8) (9)   (10)         (11)
+
+ *    (1) mount ID:  unique identifier of the mount (may be reused after umount)
+ *    (2) parent ID:  ID of parent (or of self for the top of the mount tree)
+ *    (3) major:minor:  value of st_dev for files on filesystem
+ *    (4) root:  root of the mount within the filesystem
+ *    (5) mount point:  mount point relative to the process's root
+ *    (6) mount options:  per mount options
+ *    (7) optional fields:  zero or more fields of the form "tag[:value]"
+ *    (8) separator:  marks the end of the optional fields
+ *    (9) filesystem type:  name of filesystem of the form "type[.subtype]"
+ *    (10) mount source:  filesystem specific information or "none"
+ *    (11) super options:  per super block options
+ */
 func ProbeMounts() (Mounts, error) {
-	var mounts Mounts
-	fh, err := os.Open("/proc/mounts")
-	if nil != err {
-		return nil, err
+	mount_list := make([]MountType, 0, 100)
+	device_list := make([]deviceType, 0, 20)
+	mounts := map[string]*MountType{}
+	devices := map[string]*deviceType{}
+	skip_parents := map[string]bool{}
+
+	fh, err := os.Open(defaults.MountinfoPath)
+	if err != nil {
+		return Mounts{}, err
 	}
 	defer fh.Close()
 	scanner := bufio.NewScanner(fh)
 	for scanner.Scan() {
 		line := scanner.Text()
 		segments := strings.Split(line, " ")
-		for segX, segment := range segments {
-			p := strings.IndexByte(segment, '\\')
-			if p >= 0 {
-				segments[segX] = unescapeMntent(segment)
-			}
-		}
-		if len(segments) < 4 {
+		if len(segments) < 10 {
 			continue
 		}
-		sourcept := segments[0]
-		sourcept2 := ""
-		mountpt := segments[1]
-		workpt := ""
-		fstype := segments[2]
-		opts := segments[3]
+		mountID := segments[0]
+		parentID := segments[1]
+		st_dev := segments[2]
+		root := unescape(segments[3])
+		mtpoint := unescape(segments[4])
+		options := segments[5]
+		var i int
+		for i = 6; segments[i] != "-"; i++ {}
+		fstype := segments[i + 1]
+		fsname := unescape(segments[i + 2])
 
-		if "overlay" == fstype {
-			var newopts []string
-			for _, part := range strings.Split(opts, ",") {
-				consumed := false
+		// Skip submounts of /dev and /sys
+		if defaults.ProlificFsTypes[fstype] {
+			skip_parents[mountID] = true
+		} else if skip_parents[parentID] {
+			skip_parents[mountID] = true
+			continue
+		}
+
+		var source, source2, workdir string
+
+		if fstype == "overlay" {
+			for _, part := range strings.Split(segments[i + 3], ",") {
 				kv := strings.SplitN(part, "=", 2)
 				if len(kv) > 1 {
-					consumed = true
 					switch kv[0] {
 					case "lowerdir":
-						sourcept = kv[1]
+						source = unescape(kv[1])
 					case "upperdir":
-						sourcept2 = kv[1]
+						source2 = unescape(kv[1])
 					case "workdir":
-						workpt = kv[1]
-					default:
-						consumed = false
+						workdir = unescape(kv[1])
 					}
 				}
-				if !consumed {
-					newopts = append(newopts, part)
-				}
 			}
-			opts = strings.Join(newopts, ",")
 		}
-		mounts = append(mounts,
-			MountType{sourcept, mountpt, sourcept2, workpt, fstype, opts})
+		mount_list = append(mount_list, MountType{source, mtpoint, source2, workdir,
+			fstype, options, st_dev, root})
+		mounts[mtpoint] = &mount_list[len(mount_list) - 1]
+
+		var device *deviceType
+		device, ok := devices[st_dev]
+		if !ok {
+			device_list = append(device_list, deviceType{fsname, []string{}})
+			device = &device_list[len(device_list) - 1]
+			devices[st_dev] = device
+		}
+		if root == "/" {
+			device.roots = append(device.roots, mtpoint)
+		}
+
 	}
-	return mounts, scanner.Err()
+	return Mounts{mount_list, device_list, mounts, devices}, nil
 }
 
-func (m Mounts) GetAll() Mounts {
-	return m
-}
 
 func (m Mounts) GetMount(path string) *MountType {
-	for mtX, mt := range m {
-		if mt.Mountpoint == path {
-			return &((m)[mtX])
-		}
-	}
-	return nil
+	return m.mounts[path]
 }
 
-func (m Mounts) GetSubmounts(path string) Mounts {
-	list := make([]MountType, 0, len(m))
+
+func (m Mounts) GetMountAndSubmounts(path string) []*MountType {
+	list := make([]*MountType, 0, 20)
+	if mnt := m.mounts[path]; mnt != nil {
+		list = append(list, mnt)
+	}
 	path += "/"
-	for _, mt := range m {
-		if strings.HasPrefix(mt.Mountpoint, path) {
-			list = append(list, mt)
+	for mtpoint, mnt := range m.mounts {
+		if strings.HasPrefix(mtpoint, path) {
+			list = append(list, mnt)
 		}
 	}
 	return list
 }
 
-func (m Mounts) GetMountAndSubmounts(path string) Mounts {
-	list := make([]MountType, 0, len(m))
-	topmount := m.GetMount(path)
-	if nil != topmount {
-		list = append(list, *topmount)
-	}
-	path += "/"
-	for _, mt := range m {
-		if strings.HasPrefix(mt.Mountpoint, path) {
-			list = append(list, mt)
+
+func (m Mounts) GetMountSources(mnt *MountType) []string {
+	device := m.devices[mnt.st_dev]
+	out := make([]string, 0, len(device.roots) + 1)
+	if len(mnt.Source) > 0 {
+		out = append(out, mnt.Source)
+	} else {
+		root := mnt.root
+		if root == "/" {
+			out = append(out, device.name)
+			root = ""
+		}
+		for _, mp := range device.roots {
+			src := mp + root
+			if src != mnt.Mountpoint {
+				out = append(out, mp + root)
+			}
 		}
 	}
-	return list
+	return out
 }
 
-func unescapeMntent(in string) string {
-	out := []byte(in)
+
+func (m Mounts) MountSourceIsExpected(mnt *MountType, test string) bool {
+	for _, path := range m.GetMountSources(mnt) {
+		if path == test {
+			return true
+		}
+	}
+	return false
+}
+
+
+func unescape(str string) string {
+	out := []byte(str)
 	outp := 0
 	octal := -1
 	for _, c := range out {
+		if c == '\\' {
+			octal = 0
+			continue
+		}
 		if octal > -1 {
 			if c >= '0' && c < '8' && octal < 32 {
 				octal = octal * 8 + int(c - '0')
 				continue
 			}
-			out[outp] = byte(octal)
-			outp++
+			c = byte(octal)
 			octal = -1
-		}
-		if '\\' == c {
-			octal = 0
-			continue
 		}
 		out[outp] = c
 		outp++

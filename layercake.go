@@ -192,10 +192,6 @@ func (ci commandInfo) getLayers() *manage.Layerdefs {
 	if nil != err {
 		fatal(err.Error())
 	}
-	mounts, err := fs.ProbeMounts()
-	if nil != err {
-		fatal("%s probing mounts", err)
-	}
 	br := ci.cfg.Layerdirs
 	if br[len(br)-1] != '/' {
 		br += "/"
@@ -204,7 +200,7 @@ func (ci commandInfo) getLayers() *manage.Layerdefs {
 	if nil != err {
 		fatal("%s finding users in buildroot", err)
 	}
-	err = layers.ProbeAllLayerstate(mounts, inuse)
+	err = layers.ProbeAllLayerstate(inuse)
 	if nil != err {
 		fatal("%s probing layers", err)
 	}

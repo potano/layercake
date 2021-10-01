@@ -13,6 +13,12 @@ const Generateddir = "generated"
 const Exportdirs = "export"
 const ChrootExec = "/usr/bin/chroot"
 
+const MountinfoPath = "/proc/self/mountinfo"
+var ProlificFsTypes = map[string]bool{
+	"devtmpfs": true,
+	"sysfs": true,
+}
+
 const LayerconfigFile = "layerconfig"
 const SkeletonLayerconfigFile = "default_layerconfig.skel"
 const SkeletonLayerconfigFileExt = ".skel"
@@ -27,7 +33,7 @@ export symlink /var/cache/binpkgs packages`
 
 var ExportDirEntries map[string]string = map[string]string{
 	"packages": "packages",
-	"portage": "portage",
+	"builds": "builds",
 	"generated": "generated",
 }
 

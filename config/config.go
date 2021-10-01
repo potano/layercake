@@ -21,6 +21,7 @@ type ConfigType struct {
 	LayerOvfsWorkdir string
 	LayerOvfsUpperdir string
 	Exportdirs string
+	LayerExportDirs map[string]string
 	ChrootExec string
 }
 
@@ -56,6 +57,9 @@ func defaultSettingSetup() map[string]string {
 	setup := map[string]string{}
 	for _, v := range settingSetup {
 		setup[v.name] = v.default_value
+	}
+	for key, value := range defaults.ExportDirEntries {
+		setup["export/" + key] = value
 	}
 	return setup
 }
@@ -142,6 +146,13 @@ func Load(configfile string, basepath string) (*ConfigType, error) {
 		return nil, err
 	}
 
+	exportEntries := map[string]string{}
+	for key, value := range setup {
+		if key[0:7] == "export/" {
+			exportEntries[key[7:]] = value
+		}
+	}
+
 	cfg := &ConfigType{
 		Basepath: setup["basepath"],
 		Layerdirs: setup["layerdirs"],
@@ -149,6 +160,7 @@ func Load(configfile string, basepath string) (*ConfigType, error) {
 		LayerOvfsWorkdir: setup["workdir"],
 		LayerOvfsUpperdir: setup["upperdir"],
 		Exportdirs: setup["exportroot"],
+		LayerExportDirs: exportEntries,
 		ChrootExec: setup["chrootexec"],
 	}
 	return cfg, nil
