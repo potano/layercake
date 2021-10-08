@@ -1,7 +1,6 @@
 package manage
 
 import (
-	"io"
 	"strings"
 
 	"potano.layercake/fs"
@@ -19,14 +18,8 @@ func ReadLayerFile(filename string, harderror bool) (*Layerinfo, error) {
 		ConfigExports: []NeededMountType{},
 	}
 
-	for {
-		line, err := cursor.GetLine()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
-		}
+	for cursor.Scan() {
+		line := cursor.Text()
 		line = strings.TrimSpace(line)
 		fields := strings.Fields(line)
 		if len(fields) < 1 || line[0] == '#' || (len(line) > 1 && "//" == line[:2]) {
@@ -61,7 +54,7 @@ func ReadLayerFile(filename string, harderror bool) (*Layerinfo, error) {
 	}
 	if cursor.HaveError() {
 		if harderror {
-			return nil, cursor.GetError()
+			return nil, cursor.Err()
 		}
 		layer.Messages = append(layer.Messages, cursor.GetMessages()...)
 		layer.State = Layerstate_error

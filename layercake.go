@@ -20,7 +20,7 @@ import (
 
 const mainUsageMessage = `Manages layers in the build chroot
 Usage:
-  {{myself}} [main-options] <command> [command-options]
+  {myself} [main-options] <command> [command-options]
 These commands are available
   init             Establish the layer system in configured directory
   status           Display the status of the build root

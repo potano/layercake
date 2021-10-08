@@ -6,7 +6,6 @@ import (
 	"os"
 	"fmt"
 	"path"
-	"bufio"
 	"strings"
 
 	"potano.layercake/fs"
@@ -140,6 +139,10 @@ func Load(configfile string, basepath string) (*ConfigType, error) {
 		configfile = fileSetup["configfile"]
 	}
 
+	if err := patchPaths(setup); err != nil {
+		return nil, err
+	}
+
 	defaultSetup := defaultSettingSetup()
 	mergeSettingSetup(setup, defaultSetup)
 	if err := patchPaths(setup); err != nil {
@@ -169,16 +172,13 @@ func Load(configfile string, basepath string) (*ConfigType, error) {
 
 func readConfigFile(filename string) (map[string]string, error) {
 	cfg := map[string]string{}
-	file, err := os.OpenFile(filename, os.O_RDONLY, 0666)
+	cursor, err := fs.NewTextInputFileCursor(filename)
 	if nil != err {
 		return cfg, err
 	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	lineno := 0
-	for scanner.Scan() {
-		lineno++
-		line := scanner.Text()
+	defer cursor.Close()
+	for cursor.Scan() {
+		line := cursor.Text()
 		if len(line) < 1 || line[0] == '#' || (len(line) > 1 && "//" == line[:2]) {
 			continue
 		}
@@ -207,21 +207,16 @@ func readConfigFile(filename string) (map[string]string, error) {
 			key = "upperdir"
 		case "EXPORT_DIR", "EXPORT_ROOT", "EXPORTDIR", "EXPORTROOT":
 			key = "exportroot"
-		case "CHROOT_EXEC":
+		case "CHROOTEXEC", "CHROOT_EXEC":
 			key = "chrootexec"
 		default:
-			return cfg, fmt.Errorf("Unrecognized setting '%s' in %s at line %d",
-				parts[0], filename, lineno)
+			return cfg, fmt.Errorf("Unrecognized setting '%s'", parts[0])
 		}
 		cfg[key] = val
 	}
-	err = scanner.Err()
+	err = cursor.Err()
 	if nil != err {
-		return cfg, fmt.Errorf("%s reading %s line %s", err, filename, lineno)
-	}
-	err = patchPaths(cfg)
-	if nil != err {
-		return cfg, err
+		return nil, err
 	}
 	return cfg, nil
 }

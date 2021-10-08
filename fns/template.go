@@ -1,21 +1,35 @@
 package fns
 
-import "strings"
-
 func Template(tpl string, vars map[string]string) string {
-	segs := strings.Split(tpl, "{{")
-	for segX, seg := range segs {
-		i := strings.Index(seg, "}}")
-		if i < 0 {
-			if 0 == segX {
-				continue
+	const (
+		st_norm = iota
+		st_eat
+		st_key
+	)
+	var out []rune
+	var start int
+	state := st_norm
+	for i, c := range tpl {
+		switch state {
+		case st_norm:
+			if c == '{' {
+				state = st_key
+				start = i + 1
+			} else if c == '\\' {
+				state = st_eat
+			} else {
+				out = append(out, c)
 			}
-			seg = "{{" + seg
-		} else {
-			seg = vars[seg[:i]] + seg[i+2:]
+		case st_eat:
+			out = append(out, c)
+			state = st_norm
+		case st_key:
+			if c == '}' {
+				out = append(out, []rune(vars[tpl[start:i]])...)
+				state = st_norm
+			}
 		}
-		segs[segX] = seg
 	}
-	return strings.Join(segs, "")
+	return string(out)
 }
 
