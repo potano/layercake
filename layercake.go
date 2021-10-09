@@ -72,7 +72,8 @@ func argumentHintMessageAndExit() {
 
 
 func main() {
-	opts := config.NewOpts()
+	cab := config.NewCommandArgBuilder()
+	cab.Usage = argumentHintMessageAndExit
 	var configFile, basepath string
 	var help bool
 
@@ -80,8 +81,7 @@ func main() {
 	flag.StringVar(&basepath, "basepath", "", "specify a base path")
 	flag.BoolVar(&help, "help", false, "help")
 	flag.BoolVar(&help, "h", false, "help")
-	opts.AddFlagsToFlagset(flag.CommandLine)
-	flag.Usage = argumentHintMessageAndExit
+	cab.AddFlagsToFlagset(flag.CommandLine)
 	flag.Parse()
 	if help {
 		templatedExitMessage(mainUsageMessage, 0, map[string]string{})
@@ -100,9 +100,7 @@ func main() {
 		missing: missing,
 		haveNonBasePaths: haveNonBasePaths,
 		isDefaultCommand: len(args) == 0,
-		args: args,
-		opts: opts,
-		sw: newLocalSwitches(),
+		cab: cab,
 	}
 
 	command := defaults.DefaultCommand
@@ -138,29 +136,12 @@ type commandInfo struct {
 	missing []string
 	haveNonBasePaths bool
 	isDefaultCommand bool
-	args []string
-	opts *config.Opts
-	sw *localSwitches
+	cab *config.CommandArgBuilder
 }
 
 
 func (ci commandInfo) getArgs(minNeeded, maxNeeded int) []string {
-	args := ci.args
-	ci.args = []string{}
-	firstPass := true
-	for len(args) > 0 {
-		if !firstPass {
-			ci.args = append(ci.args, args[0])
-		}
-		firstPass = false
-		flagset := flag.NewFlagSet("", flag.ExitOnError)
-		ci.opts.AddFlagsToFlagset(flagset)
-		ci.sw.AddFlagsToFlagset(flagset)
-		flagset.Usage = argumentHintMessageAndExit
-		flagset.Parse(args[1:])
-		args = flagset.Args()
-	}
-	args = ci.args
+	args := ci.cab.ParseArgsSetFlags(flag.Args())
 	if len(args) < minNeeded {
 		fatal("Not enough command-line arguments (need %d)", minNeeded)
 	}
@@ -170,8 +151,7 @@ func (ci commandInfo) getArgs(minNeeded, maxNeeded int) []string {
 	for len(args) < maxNeeded {
 		args = append(args, "")
 	}
-	fs.WriteOK = ci.opts.MakePretender()
-	fs.ReadOK = ci.opts.MakeReaderOpts(false).MakePretender()
+	fs.WriteOK = fs.MakePretender(ci.cab.Opts.Pretend, ci.cab.Opts.Debug, fmt.Printf)
 	return args
 }
 
@@ -188,7 +168,7 @@ func (ci commandInfo) failOnMissingBaseSetup() {
 
 func (ci commandInfo) getLayers() *manage.Layerdefs {
 	ci.failOnMissingBaseSetup()
-	layers, err := manage.FindLayers(ci.cfg, ci.opts)
+	layers, err := manage.FindLayers(ci.cfg, ci.cab.Opts)
 	if nil != err {
 		fatal(err.Error())
 	}
@@ -297,7 +277,7 @@ func listCommand(cmdinfo commandInfo) {
 			more = append(more, "busy")
 		}
 		tbl.Print(layer.Name, basespec, strings.Join(more, ", "),
-		layers.DescribeState(layer, cmdinfo.opts.Verbose))
+		layers.DescribeState(layer, cmdinfo.cab.Opts.Verbose))
 	}
 	tbl.Flush()
 }
@@ -305,7 +285,7 @@ func listCommand(cmdinfo commandInfo) {
 
 func addCommand(cmdinfo commandInfo) {
 	var configFile string
-	cmdinfo.sw.Add("configfile", &configFile)
+	cmdinfo.cab.AddSwitch("configfile", &configFile)
 	args := cmdinfo.getArgs(1, 2)
 	layers := cmdinfo.getLayers()
 	err := layers.AddLayer(args[0], args[1], configFile)
@@ -317,7 +297,7 @@ func addCommand(cmdinfo commandInfo) {
 
 func removeCommand(cmdinfo commandInfo) {
 	var removeFiles bool
-	cmdinfo.sw.Add("files", &removeFiles)
+	cmdinfo.cab.AddSwitch("files", &removeFiles)
 	args := cmdinfo.getArgs(1, 1)
 	layers := cmdinfo.getLayers()
 	err := layers.RemoveLayer(args[0], removeFiles)
@@ -379,7 +359,7 @@ func mountCommand(cmdinfo commandInfo) {
 
 func unmountCommand(cmdinfo commandInfo) {
 	var all bool
-	cmdinfo.sw.Add("all", &all)
+	cmdinfo.cab.AddSwitch("all", &all)
 	args := cmdinfo.getArgs(0, 1)
 	layers := cmdinfo.getLayers()
 	err := layers.Unmount(args[0], all)
@@ -410,38 +390,6 @@ func shakeCommand(cmdinfo commandInfo) {
 
 
 
-
-type localSwitches struct {
-	sw []localSwitch
-}
-
-type localSwitch struct {
-	name string
-	pt interface{}
-}
-
-func newLocalSwitches() (*localSwitches) {
-	return &localSwitches{
-		sw: []localSwitch{},
-	}
-}
-
-func (ls *localSwitches) Add(name string, pt interface{}) {
-	ls.sw = append(ls.sw, localSwitch{name, pt})
-}
-
-func (ls *localSwitches) AddFlagsToFlagset(fs *flag.FlagSet) {
-	for _, sw := range ls.sw {
-		switch sw.pt.(type) {
-		case *bool:
-			bp := sw.pt.(*bool)
-			fs.BoolVar(bp, sw.name, *bp, "")
-		case *string:
-			sp := sw.pt.(*string)
-			fs.StringVar(sp, sw.name, *sp, "")
-		}
-	}
-}
 
 
 func fatal(base string, params...interface{}) {

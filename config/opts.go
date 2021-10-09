@@ -1,64 +1,73 @@
 package config
 
 import (
-	"fmt"
 	"flag"
 )
 
 
 type Opts struct {
 	Verbose, Pretend, Debug, Force bool
-	Writer func (string, ...interface{})
 }
 
 
-func NewOpts() *Opts {
-	return &Opts{
-		Writer: func (msg string, parms...interface{}) {
-			fmt.Printf(msg + "\n", parms...)
-		},
-	}
+type CommandArgBuilder struct {
+	Usage func ()
+	Opts *Opts
+	sw []localSwitch
 }
 
 
-func (o *Opts) MakeReaderOpts(keepDebug bool) *Opts {
-	return &Opts{
-		Verbose: o.Verbose,
-		Pretend: false,
-		Debug: o.Debug && keepDebug,
-		Writer: o.Writer,
-	}
+type localSwitch struct {
+	name string
+	pt interface{}
 }
 
 
-func (o *Opts) AddFlagsToFlagset(fs *flag.FlagSet) {
-	fs.BoolVar(&o.Verbose, "v", o.Verbose, "verbose output")
-	fs.BoolVar(&o.Pretend, "p", o.Pretend, "pretend to undertake actions")
-	fs.BoolVar(&o.Debug, "debug", o.Debug, "display debugging output")
-	fs.BoolVar(&o.Force, "f", o.Force, "force actions")
+func NewCommandArgBuilder() *CommandArgBuilder {
+	cab := &CommandArgBuilder{}
+	cab.AddSwitch("v", &cab.Opts.Verbose)
+	cab.AddSwitch("p", &cab.Opts.Pretend)
+	cab.AddSwitch("debug", &cab.Opts.Debug)
+	cab.AddSwitch("f", &cab.Opts.Force)
+	return cab
 }
 
 
-func (o *Opts) MakePretender() func (string, ...interface{}) bool {
-	doIt := !o.Pretend
-	prefix := "action: "
-	if o.Pretend {
-		prefix = "would "
-	}
-	if o.Debug {
-		writer := o.Writer
-		return func (msg string, parms...interface{}) bool {
-			writer(fmt.Sprintf(prefix + msg, parms...))
-			return doIt
+func (cab *CommandArgBuilder) AddSwitch(name string, pt interface{}) {
+	cab.sw = append(cab.sw, localSwitch{name, pt})
+}
+
+
+func (cab *CommandArgBuilder) AddFlagsToFlagset(flgs *flag.FlagSet) {
+	for _, sw := range cab.sw {
+		switch sw.pt.(type) {
+		case *bool:
+			bp := sw.pt.(*bool)
+			flgs.BoolVar(bp, sw.name, *bp, "")
+		case *string:
+			sp := sw.pt.(*string)
+			flgs.StringVar(sp, sw.name, *sp, "")
 		}
 	}
-	return func (msg string, parms...interface{}) bool { return doIt }
+	if cab.Usage != nil {
+		flgs.Usage = cab.Usage
+	}
 }
 
 
-func (o *Opts) DescribeIfVerbose(msg string, parms...interface{}) {
-	if o.Verbose {
-		o.Writer(msg, parms)
+func (cab *CommandArgBuilder) ParseArgsSetFlags(args []string) []string {
+	cmdargs := make([]string, 0, len(args))
+	firstPass := true
+	for len(args) > 0 {
+		if !firstPass {
+			cmdargs = append(cmdargs, args[0])
+		}
+		firstPass = false
+		flagset := flag.NewFlagSet("", flag.ExitOnError)
+		cab.AddFlagsToFlagset(flagset)
+		flagset.Parse(args[1:])
+		args = flagset.Args()
 	}
+	return cmdargs
 }
 

@@ -533,9 +533,13 @@ func (ld *Layerdefs) Unmount(name string, unmountAll bool) error {
 		status, err := ld.unmountLayer(name)
 		switch status {
 		case Unmount_status_ok:
-			ld.opts.DescribeIfVerbose("Unmounted layer %s", name)
+			if ld.opts.Verbose {
+				fmt.Printf("Unmounted layer %s", name)
+			}
 		case Unmount_status_was_not_mounted:
-			ld.opts.DescribeIfVerbose("Layer %s was not mounted", name)
+			if ld.opts.Verbose {
+				fmt.Printf("Layer %s was not mounted", name)
+			}
 		case Unmount_status_busy:
 			busyLayers = append(busyLayers, name)
 		case Unmount_status_error:
