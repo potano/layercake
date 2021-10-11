@@ -14,10 +14,7 @@ const Exportdirs = "export"
 const ChrootExec = "/usr/bin/chroot"
 
 const MountinfoPath = "/proc/self/mountinfo"
-var ProlificFsTypes = map[string]bool{
-	"devtmpfs": true,
-	"sysfs": true,
-}
+const ProlificFsTypes = "devtmpfs sysfs"
 
 const LayerconfigFile = "layerconfig"
 const SkeletonLayerconfigFile = "default_layerconfig.skel"
@@ -31,13 +28,9 @@ import rbind /var/cache/distfiles /var/cache/distfiles
 
 export symlink /var/cache/binpkgs packages`
 
-var ExportDirEntries map[string]string = map[string]string{
-	"packages": "packages",
-	"builds": "builds",
-	"generated": "generated",
-}
+const ExportDirEntries = "packages:packages|builds:builds|generated:generated"
 
-var MinimalBuildDirs = []string{"bin", "etc", "lib", "opt", "root", "sbin", "usr"}
+const MinimalBuildDirs = "bin etc lib opt root sbin usr"
 
 const RemovedLayerSuffix = "~removed"
 

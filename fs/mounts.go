@@ -53,7 +53,12 @@ func ProbeMounts() (Mounts, error) {
 	device_list := make([]deviceType, 0, 20)
 	mounts := map[string]*MountType{}
 	devices := map[string]*deviceType{}
+	prolific_fs_types := map[string]bool{}
 	skip_parents := map[string]bool{}
+
+	for _, tp := range strings.Split(defaults.ProlificFsTypes, " ") {
+		prolific_fs_types[tp] = true
+	}
 
 	fh, err := os.Open(defaults.MountinfoPath)
 	if err != nil {
@@ -79,7 +84,7 @@ func ProbeMounts() (Mounts, error) {
 		fsname := unescape(segments[i + 2])
 
 		// Skip submounts of /dev and /sys
-		if defaults.ProlificFsTypes[fstype] {
+		if prolific_fs_types[fstype] {
 			skip_parents[mountID] = true
 		} else if skip_parents[parentID] {
 			skip_parents[mountID] = true

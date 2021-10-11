@@ -57,8 +57,9 @@ func defaultSettingSetup() map[string]string {
 	for _, v := range settingSetup {
 		setup[v.name] = v.default_value
 	}
-	for key, value := range defaults.ExportDirEntries {
-		setup["export/" + key] = value
+	for _, pair := range strings.Split(defaults.ExportDirEntries, "|") {
+		slice := strings.Split(pair, ":")
+		setup["export/" + slice[0]] = slice[1]
 	}
 	return setup
 }

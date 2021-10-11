@@ -3,6 +3,7 @@ package manage
 import (
 	"fmt"
 	"path"
+	"strings"
 
 	"potano.layercake/fs"
 	"potano.layercake/config"
@@ -173,7 +174,7 @@ func (ld *Layerdefs) ProbeAllLayerstate(inuse map[string]int) error {
 
 
 func minimalBuildDirsPresent(buildroot string) bool {
-	for _, name := range defaults.MinimalBuildDirs {
+	for _, name := range strings.Split(defaults.MinimalBuildDirs, " ") {
 		if !fs.IsDir(path.Join(buildroot, name)) {
 			return false
 		}
