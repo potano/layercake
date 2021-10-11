@@ -24,11 +24,11 @@ type localSwitch struct {
 
 
 func NewCommandArgBuilder() *CommandArgBuilder {
-	cab := &CommandArgBuilder{}
+	cab := &CommandArgBuilder{Opts: &Opts{}}
 	cab.AddSwitch("v", &cab.Opts.Verbose)
 	cab.AddSwitch("p", &cab.Opts.Pretend)
 	cab.AddSwitch("debug", &cab.Opts.Debug)
-	cab.AddSwitch("f", &cab.Opts.Force)
+	cab.AddSwitch("force", &cab.Opts.Force)
 	return cab
 }
 

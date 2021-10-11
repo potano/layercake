@@ -49,7 +49,7 @@ Main options
 Global options (may be specified anywhere in the command line)
   -v              Verbose mode: show actions (to be) taken
   -p              Pretend to carry out actions
-  -f              Force action
+  -force          Force action
   -debug          Show debugging output
 `
 
