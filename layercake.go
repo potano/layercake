@@ -151,7 +151,7 @@ func (ci commandInfo) getArgs(minNeeded, maxNeeded int) []string {
 	for len(args) < maxNeeded {
 		args = append(args, "")
 	}
-	fs.WriteOK = fs.MakePretender(ci.cab.Opts.Pretend, ci.cab.Opts.Debug, fmt.Printf)
+	fs.WriteOK = fs.MakePretender(ci.cab.Opts.Pretend, ci.cab.Opts.Debug, debugPrintf)
 	return args
 }
 
@@ -172,11 +172,7 @@ func (ci commandInfo) getLayers() *manage.Layerdefs {
 	if nil != err {
 		fatal(err.Error())
 	}
-	br := ci.cfg.Layerdirs
-	if br[len(br)-1] != '/' {
-		br += "/"
-	}
-	inuse, err := fs.FindUses(br, -1)
+	inuse, err := fs.FindLayersInUse(ci.cfg.Layerdirs)
 	if nil != err {
 		fatal("%s finding users in buildroot", err)
 	}
@@ -206,15 +202,19 @@ func initCommand(cmdinfo commandInfo) {
 			fatal("%s creating directory %s", err, dir)
 		}
 	}
-	err := fs.WriteTextFile(path.Join(cmdinfo.cfg.Basepath, defaults.SkeletonLayerconfigFile),
-		defaults.SkeletonLayerconfig)
-	if err != nil {
-		fatal("%s setting up default layer configuration", err.Error())
+	pathname := path.Join(cmdinfo.cfg.Basepath, defaults.SkeletonLayerconfigFile)
+	if canWriteOrForce(pathname, cmdinfo.cab.Opts.Force) {
+		err := fs.WriteTextFile(pathname, defaults.SkeletonLayerconfig)
+		if err != nil {
+			fatal("%s setting up default layer configuration", err.Error())
+		}
 	}
-	err = fs.WriteTextFile(path.Join(cmdinfo.cfg.Exportdirs, defaults.ExportIndexHtmlName),
-		defaults.ExportIndexHtml)
-	if err != nil {
-		fatal("%s setting up export directory", err.Error())
+	pathname = path.Join(cmdinfo.cfg.Exportdirs, defaults.ExportIndexHtmlName)
+	if canWriteOrForce(pathname, cmdinfo.cab.Opts.Force) {
+		err := fs.WriteTextFile(pathname, defaults.ExportIndexHtml)
+		if err != nil {
+			fatal("%s setting up export directory", err.Error())
+		}
 	}
 }
 
@@ -393,8 +393,26 @@ func shakeCommand(cmdinfo commandInfo) {
 
 
 func fatal(base string, params...interface{}) {
+	warn(base, params...)
+	os.Exit(1)
+}
+
+
+func warn(base string, params...interface{}) {
 	fmt.Fprintf(os.Stderr, base, params...)
 	fmt.Fprintln(os.Stderr)
-	os.Exit(1)
+}
+
+
+func canWriteOrForce(filename string, force bool) bool {
+	if !fs.IsFile(filename) {
+		return true
+	}
+	warn("%s exists; use -force switch to force-write default")
+	return false
+}
+
+func debugPrintf(base string, params...interface{}) {
+	fmt.Printf(base + "\n", params...)
 }
 

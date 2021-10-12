@@ -7,15 +7,6 @@ import (
 )
 
 
-func Cd(dir string) error {
-	err := os.Chdir(dir)
-	if nil != err {
-		return err
-	}
-	return nil
-}
-
-
 func Mkdir(dir string) error {
 	if WriteOK("mkdir %s", dir) {
 		err := os.Mkdir(dir, 0755)
@@ -31,16 +22,13 @@ func WriteTextFile(filename, contents string) error {
 	if !WriteOK("write text file %s", filename) {
 		return nil
 	}
-	if !IsFile(filename) {
-		file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
-		if nil != err {
-			return err
-		}
-		defer file.Close()
-		_, err = file.Write([]byte(contents))
+	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
+	if nil != err {
 		return err
 	}
-	return nil
+	defer file.Close()
+	_, err = file.Write([]byte(contents))
+	return err
 }
 
 

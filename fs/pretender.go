@@ -3,7 +3,7 @@ package fs
 
 
 type PretenderFn func (string, ...interface{}) bool
-type DebugMessagePrintf func (string, ...interface{}) (int, error)
+type DebugMessagePrintf func (string, ...interface{})
 
 
 var WriteOK PretenderFn
@@ -15,7 +15,7 @@ func init() {
 
 
 func MakePretender(pretend, debug bool, writer DebugMessagePrintf) PretenderFn {
-	doIt := pretend
+	doIt := !pretend
 	prefix := "action: "
 	if pretend {
 		prefix = "would "
