@@ -18,8 +18,8 @@ func ReadLayerFile(filename string, harderror bool) (*Layerinfo, error) {
 		ConfigExports: []NeededMountType{},
 	}
 
-	for cursor.Scan() {
-		line := cursor.Text()
+	var line string
+	for cursor.ReadLine(&line) {
 		line = strings.TrimSpace(line)
 		fields := strings.Fields(line)
 		if len(fields) < 1 || line[0] == '#' || (len(line) > 1 && "//" == line[:2]) {
@@ -52,7 +52,7 @@ func ReadLayerFile(filename string, harderror bool) (*Layerinfo, error) {
 			cursor.LogError("Unknown layerconf keyword '" + fields[0] + "'")
 		}
 	}
-	if cursor.HaveError() {
+	if len(cursor.GetMessages()) > 0 {
 		if harderror {
 			return nil, cursor.Err()
 		}

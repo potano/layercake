@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"io"
 	"os"
 	"fmt"
 	"bufio"
@@ -9,13 +10,31 @@ import (
 )
 
 
-type TextInputFileCursor struct {
+type LineReader interface {
+	ReadLine(*string) bool
+	Close()
+	LogError(string)
+	Err() error
+	GetMessages() []string
+}
+
+
+type TextInputCursor struct {
 	filename string
 	lineno int
-	fh *os.File
 	scanner *bufio.Scanner
-	text string
 	messages []string
+}
+
+
+type TextInputFileCursor struct {
+	*TextInputCursor
+	fh *os.File
+}
+
+
+func NewTextInputCursor(filename string, reader io.Reader) (*TextInputCursor) {
+	return &TextInputCursor{filename: filename, scanner: bufio.NewScanner(reader)}
 }
 
 
@@ -24,55 +43,44 @@ func NewTextInputFileCursor(filename string) (*TextInputFileCursor, error) {
 	if err != nil {
 		return nil, err
 	}
-	scanner := bufio.NewScanner(fh)
 	return &TextInputFileCursor{
-		filename: filename,
-		lineno: 0,
+		TextInputCursor: NewTextInputCursor(filename, fh),
 		fh: fh,
-		scanner: scanner,
-		messages: []string{},
 	}, nil
 }
 
 
-func (tic *TextInputFileCursor) Scan() bool {
+func (tifc *TextInputFileCursor) Close() {
+	tifc.fh.Close()
+}
+
+
+func (tic *TextInputCursor) ReadLine(s *string) bool {
 	status := tic.scanner.Scan()
 	err :=  tic.scanner.Err()
 	tic.lineno++
 	if err != nil {
 		tic.LogError(err.Error())
 	}
-	tic.text = tic.scanner.Text()
+	*s = tic.scanner.Text()
 	return status
 }
 
 
-func (tic *TextInputFileCursor) Text() string {
-	return tic.text
-}
+func (tic *TextInputCursor) Close() {}
 
 
-func (tic *TextInputFileCursor) Close() {
-	tic.fh.Close()
-}
-
-
-func (tic *TextInputFileCursor) LogError(message string) {
+func (tic *TextInputCursor) LogError(message string) {
 	tic.messages = append(tic.messages, fmt.Sprintf(message + " in %s line %d", tic.filename,
 	tic.lineno))
 }
 
 
-func (tic *TextInputFileCursor) HaveError() bool {
-	return len(tic.messages) > 0
-}
-
-
-func (tic *TextInputFileCursor) GetMessages() []string {
+func (tic *TextInputCursor) GetMessages() []string {
 	return tic.messages
 }
 
-func (tic *TextInputFileCursor) Err() error {
+func (tic *TextInputCursor) Err() error {
 	if len(tic.messages) > 0 {
 		return errors.New(strings.Join(tic.messages, "\n"))
 	}

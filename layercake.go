@@ -408,7 +408,7 @@ func canWriteOrForce(filename string, force bool) bool {
 	if !fs.IsFile(filename) {
 		return true
 	}
-	warn("%s exists; use -force switch to force-write default")
+	warn("%s exists; use -force switch to force-write default", filename)
 	return false
 }
 

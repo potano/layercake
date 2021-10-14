@@ -1,8 +1,7 @@
 package fs
 
 import (
-	"os"
-	"bufio"
+	"path"
 	"strings"
 
 	"potano.layercake/defaults"
@@ -49,6 +48,14 @@ type Mounts struct {
  *    (11) super options:  per super block options
  */
 func ProbeMounts() (Mounts, error) {
+	cursor, err := NewTextInputFileCursor(defaults.MountinfoPath)
+	if err != nil {
+		return Mounts{}, err
+	}
+	return probeMountsCursor(cursor)
+}
+
+func probeMountsCursor(cursor LineReader) (Mounts, error) {
 	mount_list := make([]MountType, 0, 100)
 	device_list := make([]deviceType, 0, 20)
 	mounts := map[string]*MountType{}
@@ -60,14 +67,9 @@ func ProbeMounts() (Mounts, error) {
 		prolific_fs_types[tp] = true
 	}
 
-	fh, err := os.Open(defaults.MountinfoPath)
-	if err != nil {
-		return Mounts{}, err
-	}
-	defer fh.Close()
-	scanner := bufio.NewScanner(fh)
-	for scanner.Scan() {
-		line := scanner.Text()
+	defer cursor.Close()
+	var line string
+	for cursor.ReadLine(&line) {
 		segments := strings.Split(line, " ")
 		if len(segments) < 10 {
 			continue
@@ -162,7 +164,7 @@ func (m Mounts) GetMountSources(mnt *MountType) []string {
 		for _, mp := range device.roots {
 			src := mp + root
 			if src != mnt.Mountpoint {
-				out = append(out, mp + root)
+				out = append(out, path.Join(mp, root))
 			}
 		}
 	}

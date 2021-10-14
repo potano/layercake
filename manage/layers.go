@@ -84,7 +84,7 @@ func (ld *Layerdefs) DescribeState(li *Layerinfo, detailed bool) []string {
 		out = append(out, li.Messages...)
 		mnts := ld.describeMounts(li, "  ")
 		if len(mnts) > 0 {
-			out = append(out, "Mounts:")
+			out = append(out, "Current mounts:")
 			out = append(out, mnts...)
 		}
 		if li.Busy && !li.Chroot {

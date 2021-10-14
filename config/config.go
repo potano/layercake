@@ -178,8 +178,8 @@ func readConfigFile(filename string) (map[string]string, error) {
 		return cfg, err
 	}
 	defer cursor.Close()
-	for cursor.Scan() {
-		line := cursor.Text()
+	var line string
+	for cursor.ReadLine(&line) {
 		if len(line) < 1 || line[0] == '#' || (len(line) > 1 && "//" == line[:2]) {
 			continue
 		}
