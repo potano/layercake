@@ -55,8 +55,8 @@ Global options (may be specified anywhere in the command line)
 
 const argumentHintMessage = `
 Usage:
-  {{myself}} [main-options] <command> [command-args-and-options]
-  {{myself}} -h`
+  {myself} [main-options] <command> [command-args-and-options]
+  {myself} -h`
 
 
 func templatedExitMessage(baseMessage string, exitCode int, subst map[string]string) {
@@ -92,13 +92,9 @@ func main() {
 		fatal(err.Error())
 	}
 
-	missing, haveNonBasePaths := cfg.CheckConfigPaths()
-
 	args := flag.Args()
 	cmdinfo := commandInfo{
 		cfg: cfg,
-		missing: missing,
-		haveNonBasePaths: haveNonBasePaths,
 		isDefaultCommand: len(args) == 0,
 		cab: cab,
 	}
@@ -133,8 +129,6 @@ func main() {
 
 type commandInfo struct {
 	cfg *config.ConfigType
-	missing []string
-	haveNonBasePaths bool
 	isDefaultCommand bool
 	cab *config.CommandArgBuilder
 }
@@ -157,11 +151,10 @@ func (ci commandInfo) getArgs(minNeeded, maxNeeded int) []string {
 
 
 func (ci commandInfo) failOnMissingBaseSetup() {
-	if len(ci.missing) > 0 {
-		for _, name := range ci.missing {
-			fmt.Fprintf(os.Stderr, "Base directory %s is missing\n", name)
-		}
-		fatal("Cannot proceed unless all base directories exist")
+	missing := manage.CheckBaseSetUp(ci.cfg)
+	if len(missing) > 0 {
+		fatal("Missing item(s):\n  %s\nCannot proceed unless all exist",
+			strings.Join(missing, "\n  "))
 	}
 }
 
@@ -189,32 +182,9 @@ func (ci commandInfo) getLayers() *manage.Layerdefs {
 
 func initCommand(cmdinfo commandInfo) {
 	cmdinfo.getArgs(0, 0)
-	if len(cmdinfo.missing) == 0 {
-		fmt.Println("Base directories already set up:  nothing to do")
-		return
-	}
-	if cmdinfo.haveNonBasePaths {
-		fatal("At least one base element has an absolute path: need manual setup")
-	}
-	for _, dir := range cmdinfo.missing {
-		err := fs.Mkdir(dir)
-		if nil != err {
-			fatal("%s creating directory %s", err, dir)
-		}
-	}
-	pathname := path.Join(cmdinfo.cfg.Basepath, defaults.SkeletonLayerconfigFile)
-	if canWriteOrForce(pathname, cmdinfo.cab.Opts.Force) {
-		err := fs.WriteTextFile(pathname, defaults.SkeletonLayerconfig)
-		if err != nil {
-			fatal("%s setting up default layer configuration", err.Error())
-		}
-	}
-	pathname = path.Join(cmdinfo.cfg.Exportdirs, defaults.ExportIndexHtmlName)
-	if canWriteOrForce(pathname, cmdinfo.cab.Opts.Force) {
-		err := fs.WriteTextFile(pathname, defaults.ExportIndexHtml)
-		if err != nil {
-			fatal("%s setting up export directory", err.Error())
-		}
+	err := manage.InitLayercakeBase(cmdinfo.cfg)
+	if err != nil {
+		fatal("init: %s", err.Error())
 	}
 }
 
@@ -393,24 +363,11 @@ func shakeCommand(cmdinfo commandInfo) {
 
 
 func fatal(base string, params...interface{}) {
-	warn(base, params...)
+	fmt.Fprintf(os.Stderr, base, params...)
+	fmt.Fprintln(os.Stderr)
 	os.Exit(1)
 }
 
-
-func warn(base string, params...interface{}) {
-	fmt.Fprintf(os.Stderr, base, params...)
-	fmt.Fprintln(os.Stderr)
-}
-
-
-func canWriteOrForce(filename string, force bool) bool {
-	if !fs.IsFile(filename) {
-		return true
-	}
-	warn("%s exists; use -force switch to force-write default", filename)
-	return false
-}
 
 func debugPrintf(base string, params...interface{}) {
 	fmt.Printf(base + "\n", params...)

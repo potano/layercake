@@ -389,7 +389,7 @@ func (ld *Layerdefs) Shell(name string) error {
 	if !fs.IsDir(builddir) {
 		return fmt.Errorf("Build directory for layer %s does not exist", name)
 	}
-	fmt.Println("Exit to return to layercake.\nCaution: this is *not* a chroot.")
+	fs.Println("Exit to return to layercake.\nCaution: this is *not* a chroot.")
 	return fs.Shell(builddir)
 }
 
@@ -534,11 +534,11 @@ func (ld *Layerdefs) Unmount(name string, unmountAll bool) error {
 		switch status {
 		case Unmount_status_ok:
 			if ld.opts.Verbose {
-				fmt.Printf("Unmounted layer %s", name)
+				fs.Printf("Unmounted layer %s", name)
 			}
 		case Unmount_status_was_not_mounted:
 			if ld.opts.Verbose {
-				fmt.Printf("Layer %s was not mounted", name)
+				fs.Printf("Layer %s was not mounted", name)
 			}
 		case Unmount_status_busy:
 			busyLayers = append(busyLayers, name)

@@ -9,7 +9,7 @@ import (
 
 func Mkdir(dir string) error {
 	if WriteOK("mkdir %s", dir) {
-		err := os.Mkdir(dir, 0755)
+		err := os.MkdirAll(dir, 0755)
 		if nil != err {
 			return err
 		}
