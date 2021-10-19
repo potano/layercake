@@ -132,7 +132,7 @@ func (ld *Layerdefs) getDefaultLayerinfo(filename string) (*Layerinfo, error) {
 	}
 	origFilename := filename
 	if !fs.IsFile(filename) {
-		filename = path.Join(ld.cfg.Layerdirs, filename)
+		filename = path.Join(ld.cfg.Basepath, filename)
 		if !fs.IsFile(filename) && len(filepath.Ext(filename)) == 0 {
 			filename = filename + defaults.SkeletonLayerconfigFileExt
 		}
@@ -151,26 +151,30 @@ func (ld *Layerdefs) AddLayer(name, base, configFile string) error {
 	if nil != err {
 		return err
 	}
-	var layer *Layerinfo
+	var basis_layer *Layerinfo
 	if len(base) > 0 {
 		if base == name {
 			return errors.New("Layer cannot be its own base")
 		}
-		layer = ld.layermap[base]
+		basis_layer = ld.layermap[base]
 	}
 	if len(configFile) > 0 || len(base) == 0 {
-		layer, err = ld.getDefaultLayerinfo(configFile)
+		basis_layer, err = ld.getDefaultLayerinfo(configFile)
 		if err != nil {
 			return err
 		}
 	}
-	if layer == nil {
+	if basis_layer == nil {
 		return fmt.Errorf("Specify a layer-config file")
 	}
-	layer.Name = name
-	layer.Base = base
-	layer.LayerPath = ld.layerPath(name)
-	layer.Mounts = []*fs.MountType{}
+	layer := &Layerinfo{
+		Name: name,
+		Base: base,
+		ConfigMounts: basis_layer.ConfigMounts,
+		ConfigExports: basis_layer.ConfigExports,
+		LayerPath: ld.layerPath(name),
+		Mounts: []*fs.MountType{},
+	}
 
 	err = fs.Mkdir(layer.LayerPath)
 	if err != nil {
@@ -194,6 +198,7 @@ func (ld *Layerdefs) AddLayer(name, base, configFile string) error {
 			return err
 		}
 	}
+	ld.layermap[name] = layer
 	ld.normalizeOrder()
 	return nil
 }
@@ -260,7 +265,7 @@ func (ld *Layerdefs) RemoveLayer(name string, removeFiles bool) error {
 		return err
 	}
 
-	if removeFiles {
+	if removeFiles || layer.State == Layerstate_complete {
 		err = fs.Remove(layer.LayerPath)
 		if err != nil {
 			return err

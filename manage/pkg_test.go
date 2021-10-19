@@ -16,13 +16,22 @@ import (
 )
 
 
+const (
+	wantfile_file = iota
+	wantfile_dir
+	wantfile_symlink
+)
+
+var wantfile_desc []string = []string{"file", "directory", "symlink"}
+
 type Tmpdir struct {
 	rootdir string
+	want *wantFile
 }
 
 func NewTmpdir(patt string) (*Tmpdir, error) {
 	name, err := ioutil.TempDir("", patt)
-	return &Tmpdir{name}, err
+	return &Tmpdir{name, newWantFile("", wantfile_dir, "")}, err
 }
 
 func (t *Tmpdir) Cleanup() {
@@ -35,12 +44,20 @@ func (t *Tmpdir) Path(name string) string {
 
 func (t *Tmpdir) Mkdir(dirname string) error {
 	pathname := t.Path(dirname)
-	return os.MkdirAll(pathname, 0755)
+	err := os.MkdirAll(pathname, 0755)
+	if err == nil {
+		t.want.MkdirAll(dirname)
+	}
+	return err
 }
 
 func (t *Tmpdir) WriteFile(filename, contents string) error {
 	pathname := t.Path(filename)
-	return ioutil.WriteFile(pathname, []byte(contents), 0644)
+	err := ioutil.WriteFile(pathname, []byte(contents), 0644)
+	if err == nil {
+		t.want.WriteFile(filename, contents)
+	}
+	return err
 }
 
 func (t *Tmpdir) ReadFile(filename string) (string, error) {
@@ -51,7 +68,11 @@ func (t *Tmpdir) ReadFile(filename string) (string, error) {
 
 func (t *Tmpdir) Remove(filename string) error {
 	pathname := t.Path(filename)
-	return os.Remove(pathname)
+	err := os.Remove(pathname)
+	if err == nil {
+		t.want.Remove(filename)
+	}
+	return err
 }
 
 func (t *Tmpdir) IsFile(filename string) bool {
@@ -83,6 +104,200 @@ func (td *Tmpdir) checkExpectedFileContents(t *testing.T, err error, name, conte
 	}
 	if blob != contents {
 		t.Fatalf("%s: read from file %s:\n%s", desc, name, blob)
+	}
+}
+
+type wantFile struct {
+	name string
+	tp int
+	contents string
+	entries map[string]*wantFile
+}
+
+func newWantFile(name string, tp int, contents string) *wantFile {
+	return &wantFile{name, tp, contents, map[string]*wantFile{}}
+}
+
+func (wf *wantFile) findParent(pathname string) (*wantFile, []string) {
+	segs := strings.Split(pathname, "/")
+	for len(segs) > 1 {
+		var entry *wantFile
+		name := segs[0]
+		if len(name) == 0 {
+			segs = segs[1:]
+			continue
+		}
+		if entry = wf.entries[name]; entry == nil || entry.tp != wantfile_dir {
+			break
+		}
+		wf = entry
+		segs = segs[1:]
+	}
+	return wf, segs
+}
+
+func (wf *wantFile) WriteFile(filename, contents string) bool {
+	dir, list := wf.findParent(filename)
+	if dir.tp != wantfile_dir || len(list) != 1 {
+		return false
+	}
+	dir.entries[list[0]] = newWantFile(list[0], wantfile_file, contents)
+	return true
+}
+
+func (wf *wantFile) MkdirAll(dirname string) bool {
+	dir, list := wf.findParent(dirname)
+	if dir.tp != wantfile_dir {
+		return false
+	}
+	for len(list) > 0 {
+		name := list[0]
+		list = list[1:]
+		entry := newWantFile(name, wantfile_dir, "")
+		dir.entries[name] = entry
+		dir = entry
+	}
+	return true
+}
+
+func (wf *wantFile) Remove(filename string) bool {
+	dir, list := wf.findParent(filename)
+	if dir.tp != wantfile_dir || len(list) != 1 {
+		return false
+	}
+	name := list[0]
+	entry := dir.entries[name]
+	if entry == nil || len(entry.entries) > 0 {
+		return false
+	}
+	delete(dir.entries, name)
+	return true
+}
+
+func (wf *wantFile) RemoveAll(filename string) bool {
+	dir, list := wf.findParent(filename)
+	if dir.tp != wantfile_dir || len(list) != 1 {
+		return false
+	}
+	name := list[0]
+	entry := dir.entries[name]
+	if entry == nil {
+		return false
+	}
+	delete(dir.entries, name)
+	return true
+}
+
+func (wf *wantFile) RenameDirentry(pathname, newname string) bool {
+	dir, list := wf.findParent(pathname)
+	if dir.tp != wantfile_dir || len(list) != 1 {
+		return false
+	}
+	name := list[0]
+	entry := dir.entries[name]
+	if entry == nil {
+		return false
+	}
+	delete(dir.entries, name)
+	dir.entries[newname] = entry
+	return true
+}
+
+func fillWantFilesFromPath(pathname string) (*wantFile, error) {
+	wf := newWantFile("", wantfile_dir, "")
+	files, err := (func (pathname string) ([]os.FileInfo, error) {
+		fh, err := os.Open(pathname)
+		if err != nil {
+			return nil, err
+		}
+		defer fh.Close()
+		return fh.Readdir(-1)
+	})(pathname)
+	if err != nil {
+		return wf, err
+	}
+	for _, fi := range files {
+		name := fi.Name()
+		mode := fi.Mode()
+		newpath := pathname + "/" + name
+		if (mode & (os.ModeNamedPipe|os.ModeSocket|os.ModeDevice|os.ModeIrregular)) != 0 {
+			return wf, fmt.Errorf("Unexpected file mode %d found for %s", mode, newpath)
+		}
+		if fi.IsDir() {
+			dir, err := fillWantFilesFromPath(newpath)
+			if err != nil {
+				return wf, err
+			}
+			dir.name = name
+			wf.entries[name] = dir
+		} else if (mode & os.ModeSymlink) != 0 {
+			target, err := os.Readlink(newpath)
+			if err != nil {
+				return wf, err
+			}
+			wf.entries[name] = newWantFile(name, wantfile_symlink, target)
+		} else {
+			buf, err := ioutil.ReadFile(newpath)
+			if err != nil {
+				return wf, err
+			}
+			wf.entries[name] = newWantFile(name, wantfile_file, string(buf))
+		}
+	}
+	return wf, nil
+}
+
+func (t *Tmpdir) UpdateWantFiles() error {
+	wf, err := fillWantFilesFromPath(t.rootdir)
+	if err != nil {
+		return err
+	}
+	t.want = wf
+	return nil
+}
+
+func (td *Tmpdir) CheckAgainstWantedTree(t *testing.T, phase string) {
+	var messages messageSlice
+	var compareTwo func (want, have *wantFile, basepath string)
+	compareTwo = func (want, have *wantFile, basepath string) {
+		for name, w := range want.entries {
+			h := have.entries[name]
+			newpath := basepath + "/" + name
+			if h == nil {
+				messages.addf("missing expected %s %s",
+					wantfile_desc[w.tp], newpath)
+			} else if h.tp != w.tp {
+				messages.addf("expected %s %s, got %s", wantfile_desc[w.tp],
+					newpath, wantfile_desc[h.tp])
+			} else if h.contents != w.contents {
+				if w.tp == wantfile_symlink {
+					messages.addf("unexpected target of symlink %s: %s",
+						newpath, h.contents)
+				} else {
+					messages.addf("unexpected contents of file %s: %s",
+						newpath, h.contents)
+				}
+			} else if w.tp == wantfile_dir {
+				compareTwo(w, h, newpath)
+			}
+		}
+		for name, h := range have.entries {
+			if want.entries[name] == nil {
+				messages.addf("unexpected %s %s", wantfile_desc[h.tp],
+					basepath + "/" + name)
+			}
+		}
+	}
+
+	have, err := fillWantFilesFromPath(td.rootdir)
+	if err != nil {
+		messages.add(err.Error())
+	} else {
+		compareTwo(td.want, have, "")
+	}
+	if len(messages) > 0 {
+		t.Fatalf("%s: differences between wanted and expected files\n  %s", phase,
+			strings.Join(messages, "\n  "))
 	}
 }
 
@@ -271,6 +486,42 @@ func compareMounts(want, have []*fs.MountType) []string {
 	return problems
 }
 
+
+type wantedLayerData struct {
+	Name, Base string
+	Busy, Chroot bool
+	Messages []string
+}
+
+func checkLayerDescriptions(t *testing.T, layers *Layerdefs, wants []wantedLayerData,
+phase string) {
+	llist := layers.Layers()
+	if len(llist) != len(wants) {
+		t.Fatalf("%s: expected %d layer(s), got %d", phase, len(wants), len(llist))
+	}
+	for i, l := range llist {
+		want := wants[i]
+		if l.Name != want.Name {
+			t.Fatalf("%s: got layer name %s", phase, l.Name)
+		}
+		if l.Base != want.Base {
+			t.Fatalf("%s: layer %s has unexpected base %s", phase, l.Name, l.Base)
+		}
+		if l.Busy != want.Busy {
+			t.Fatalf("%s, layer %s has unexpected Busy=%t", phase, l.Name, l.Busy)
+		}
+		if l.Chroot != want.Chroot {
+			t.Fatalf("%s, layer %s has unexpected Chroot=%t", phase, l.Name, l.Chroot)
+		}
+		state := layers.DescribeState(l, true)
+		if !stringSlicesEqual(want.Messages, state) {
+			t.Fatalf("%s, layer %s has unexpected message(s)\n  %s", phase, l.Name,
+				strings.Join(state, "\n  "))
+		}
+	}
+}
+
+
 func stringSlicesEqual(want, have []string) bool {
 	ok := len(want) == len(have)
 	if ok {
@@ -324,6 +575,20 @@ func checkSameLayerinfo(t *testing.T, want Layerinfo, have *Layerinfo, phase str
 	}
 }
 
+func getLayers(t *testing.T, cfg *config.ConfigType, opts *config.Opts, inuse map[string]int,
+phase string) *Layerdefs {
+	layers, err := FindLayers(cfg, opts)
+	if err != nil {
+		t.Fatalf("%s: %s", phase, err)
+	}
+	err = layers.ProbeAllLayerstate(inuse)
+	if err != nil {
+		t.Fatalf("%s: %s", phase, err)
+	}
+	return layers
+}
+
+
 
 func TestManage(t *testing.T) {
 	fs.MessageWriter = capturingMessageWriter
@@ -375,6 +640,7 @@ func TestManage(t *testing.T) {
 		return
 	}
 
+
 	if !t.Run("read_layerfile", func (t *testing.T) {
 		typicalConfigMounts := []NeededMountType{
 			{Mount: "/dev", Source: "/dev", Fstype: "rbind"},
@@ -388,6 +654,7 @@ func TestManage(t *testing.T) {
 		typicalConfigExports := []NeededMountType{
 			{Mount: "packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
 		}
+
 
 		li, err := ReadLayerFile(td.Path(layercake_skel_path), false)
 		if err != nil {
@@ -403,6 +670,7 @@ func TestManage(t *testing.T) {
 		layerfilePath := td.Path(layerfileName)
 		li, err = ReadLayerFile(layerfilePath, false)
 		td.checkIfPathNotFoundError(t, err, "open", layerfileName, "missing layerfile")
+
 
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
@@ -424,6 +692,7 @@ func TestManage(t *testing.T) {
 			Mounts: emptyFsMounts,
 		}, li, "augmented layout")
 
+
 		td.WriteFile(layerfileName,
 			`# Comment
 			base basic
@@ -444,6 +713,7 @@ func TestManage(t *testing.T) {
 			Mounts: emptyFsMounts,
 		}, li, "base specified")
 
+
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
 			input rbind /here /there
@@ -456,6 +726,7 @@ func TestManage(t *testing.T) {
 		checkErrorByMessage(t, err, "Unknown layerconf keyword 'input' in " +
 			layerfilePath + " line 2", "unknown keyword")
 
+
 		td.WriteFile(layerfileName,
 			`base
 			import rbind /dev /dev
@@ -467,6 +738,7 @@ func TestManage(t *testing.T) {
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "No base specified in " +
 			layerfilePath + " line 1", "missing base name")
+
 
 		td.WriteFile(layerfileName,
 			`base b.dir
@@ -485,6 +757,7 @@ func TestManage(t *testing.T) {
 			Mounts: emptyFsMounts,
 		}, li, "invalid layer name")
 
+
 		td.WriteFile(layerfileName,
 			`import rbind /dev
 			import proc proc /proc
@@ -495,6 +768,7 @@ func TestManage(t *testing.T) {
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "Incomplete import specification in " + layerfilePath +
 			" line 1", "2-argument import")
+
 
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
@@ -507,6 +781,7 @@ func TestManage(t *testing.T) {
 		checkErrorByMessage(t, err, "Incomplete export specification in " +
 			layerfilePath + " line 6", "2-argument export")
 
+
 		li, err = ReadLayerFile(layerfilePath, false)
 		checkErrorByMessage(t, err, "", "2-argument export; soft error")
 		checkSameLayerinfo(t, Layerinfo{
@@ -517,6 +792,7 @@ func TestManage(t *testing.T) {
 			Mounts: emptyFsMounts,
 			State: 1,
 		}, li, "2-argument export; soft error")
+
 
 		td.WriteFile(layerfileName,
 			`base
@@ -539,6 +815,7 @@ func TestManage(t *testing.T) {
 			State: 1,
 		}, li, "no-base + 2-argument export; soft error")
 
+
 		td.WriteFile(layerfileName,
 			`# Comment
 			base fundamento
@@ -558,6 +835,7 @@ func TestManage(t *testing.T) {
 			Mounts: emptyFsMounts,
 		}, li, "multiple bases, same value")
 
+
 		td.WriteFile(layerfileName,
 			`# Comment
 			base fundament
@@ -575,6 +853,7 @@ func TestManage(t *testing.T) {
 		return
 	}
 
+
 	if !t.Run("write_layerfile", func (t *testing.T) {
 		typicalConfigMounts := []NeededMountType{
 			{Mount: "/dev", Source: "/dev", Fstype: "rbind"},
@@ -588,6 +867,7 @@ func TestManage(t *testing.T) {
 		typicalConfigExports := []NeededMountType{
 			{Mount: "packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
 		}
+
 
 		layerfileName := "test_layerfile"
 		layerfilePath := td.Path(layerfileName)
@@ -620,6 +900,128 @@ import rbind /root/common /mnt/common
 
 export symlink /var/cache/binpkgs packages
 `, "extra import")
+	}) {
+		return
+	}
+
+
+	if !t.Run("add_layer", func (t *testing.T) {
+		basic_layerdef :=
+`import rbind /dev /dev
+import proc proc /proc
+import rbind /sys /sys
+import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+import rbind /var/cache/distfiles /var/cache/distfiles
+
+export symlink /var/cache/binpkgs packages
+`
+
+		alt_layerdef :=
+`import rbind /dev /dev
+import proc proc /proc
+import rbind /sys /sys
+import rbind /var/db/repos/gentoo /usr/portage
+import rbind /var/cache/distfiles /var/cache/distfiles
+
+export symlink /var/cache/binpkgs packages
+`
+
+		err := td.UpdateWantFiles()
+		if err != nil {
+			t.Fatal(err.Error())
+		}
+		opts := &config.Opts{}
+		inuse := map[string]int{}
+
+
+		layers := getLayers(t, cfg, opts, inuse, "add base0")
+		err = layers.AddLayer("base0", "", "")
+		if err != nil {
+			t.Fatalf("add base0: %s", err)
+		}
+		td.want.MkdirAll("/var/lib/layercake/layers/base0/build")
+		td.want.WriteFile("/var/lib/layercake/layers/base0/layerconfig", basic_layerdef)
+		td.CheckAgainstWantedTree(t, "after adding base0")
+		layers = getLayers(t, cfg, opts, inuse, "after adding base0")
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, []string{"not yet populated"}},
+		}, "after adding base0")
+
+		err = layers.RemoveLayer("base0", false)
+		if err != nil {
+			t.Fatalf("removed just-added base0: %s", err)
+		}
+		td.want.RemoveAll("/var/lib/layercake/layers/base0")
+		td.CheckAgainstWantedTree(t, "removed just-added base0")
+		checkLayerDescriptions(t, layers, []wantedLayerData{}, "removed just-added base0")
+
+
+		layers = getLayers(t, cfg, opts, inuse, "re-add base0")
+		err = layers.AddLayer("base0", "", "")
+		if err != nil {
+			t.Fatalf("re-add base0: %s", err)
+		}
+		td.want.MkdirAll("/var/lib/layercake/layers/base0/build")
+		td.want.WriteFile("/var/lib/layercake/layers/base0/layerconfig", basic_layerdef)
+		td.CheckAgainstWantedTree(t, "after re-adding base0")
+		layers = getLayers(t, cfg, opts, inuse, "after re-adding base0")
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, []string{"not yet populated"}},
+		}, "after re-adding base0")
+
+
+		td.WriteFile("/var/lib/layercake/usrportage.skel", alt_layerdef)
+		layers = getLayers(t, cfg, opts, inuse, "add base1")
+		err = layers.AddLayer("base1", "", "usrportage.skel")
+		if err != nil {
+			t.Fatalf("add base1: %s", err)
+		}
+		td.want.MkdirAll("/var/lib/layercake/layers/base1/build")
+		td.want.WriteFile("/var/lib/layercake/layers/base1/layerconfig", alt_layerdef)
+		td.CheckAgainstWantedTree(t, "added base1")
+		layers = getLayers(t, cfg, opts, inuse, "added base1")
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, []string{"not yet populated"}},
+		}, "added base1")
+
+
+		layers = getLayers(t, cfg, opts, inuse, "add derived1")
+		err = layers.AddLayer("derived1", "base1", "")
+		if err != nil {
+			t.Fatalf("add derived1: %s", err)
+		}
+		td.want.MkdirAll("/var/lib/layercake/layers/derived1/build")
+		td.want.WriteFile("/var/lib/layercake/layers/derived1/layerconfig",
+			"base base1\n\n" + alt_layerdef)
+		td.want.MkdirAll("/var/lib/layercake/layers/derived1/overlayfs/workdir")
+		td.want.MkdirAll("/var/lib/layercake/layers/derived1/overlayfs/upperdir")
+		td.CheckAgainstWantedTree(t, "added derived1")
+		layers = getLayers(t, cfg, opts, inuse, "added derived1")
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, []string{"not yet populated"}},
+		}, "added base1")
+
+
+		layers = getLayers(t, cfg, opts, inuse, "attempt re-add derived1")
+		err = layers.AddLayer("derived1", "base1", "")
+		checkErrorByMessage(t, err, "Layer name 'derived1' already exists",
+			"attempt re-add derived1")
+
+
+		layers = getLayers(t, cfg, opts, inuse, "attempt base cycle")
+		err = layers.AddLayer("derived1", "derived1", "")
+		checkErrorByMessage(t, err, "Layer name 'derived1' already exists",
+			"attempt base cycle")
+
+
+		layers = getLayers(t, cfg, opts, inuse, "attempt non-existent base")
+		err = layers.AddLayer("derived2", "something1", "")
+		checkErrorByMessage(t, err, "Parent layer name 'something1' does not exist",
+			"attempt non-existent base")
+
 	}) {
 		return
 	}
