@@ -1002,7 +1002,7 @@ export symlink /var/cache/binpkgs packages
 			{"base0", "", false, false, []string{"not yet populated"}},
 			{"base1", "", false, false, []string{"not yet populated"}},
 			{"derived1", "base1", false, false, []string{"not yet populated"}},
-		}, "added base1")
+		}, "added derived1")
 
 
 		layers = getLayers(t, cfg, opts, inuse, "attempt re-add derived1")
@@ -1021,6 +1021,26 @@ export symlink /var/cache/binpkgs packages
 		err = layers.AddLayer("derived2", "something1", "")
 		checkErrorByMessage(t, err, "Parent layer name 'something1' does not exist",
 			"attempt non-existent base")
+
+
+		layers = getLayers(t, cfg, opts, inuse, "add derived0")
+		err = layers.AddLayer("derived0", "base0", "")
+		if err != nil {
+			t.Fatalf("add derived0: %s", err)
+		}
+		td.want.MkdirAll("/var/lib/layercake/layers/derived0/build")
+		td.want.WriteFile("/var/lib/layercake/layers/derived0/layerconfig",
+			"base base0\n\n" + basic_layerdef)
+		td.want.MkdirAll("/var/lib/layercake/layers/derived0/overlayfs/workdir")
+		td.want.MkdirAll("/var/lib/layercake/layers/derived0/overlayfs/upperdir")
+		td.CheckAgainstWantedTree(t, "added derived0")
+		layers = getLayers(t, cfg, opts, inuse, "added derived0")
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, []string{"not yet populated"}},
+			{"derived0", "base0", false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, []string{"not yet populated"}},
+		}, "added derived0")
 
 	}) {
 		return
