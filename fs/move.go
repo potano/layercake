@@ -56,7 +56,10 @@ func Unmount(mounted string, force bool) error {
 		if force {
 			flags |= syscall.MNT_FORCE
 		}
-		return syscall.Unmount(mounted, flags)
+		err := syscall.Unmount(mounted, flags)
+		if err != nil {
+			return fmt.Errorf("Cannot unmount %s: %s", mounted, err)
+		}
 	}
 	return nil
 }

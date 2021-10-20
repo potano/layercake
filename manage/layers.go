@@ -99,28 +99,33 @@ func (ld *Layerdefs) describeMounts(li *Layerinfo, leftpad string) (out []string
 	if len(li.Mounts) == 0 {
 		return
 	}
-	mounts := map[string]*fs.MountType{}
-	for _, mnt := range li.Mounts {
-		mounts[mnt.Mountpoint] = mnt
-	}
 	buildpath := ld.buildPath(li)
-	base := []string{}
+	configed := map[string]string{}
 	for _, cm := range li.ConfigMounts {
-		mt := path.Join(buildpath, cm.Mount)
-		if _, exists := mounts[mt]; exists {
-			base = append(base, cm.Mount)
-			delete(mounts, mt)
+		configed[path.Join(buildpath, cm.Mount)] = cm.Mount
+	}
+	var required, other []string
+	var overlayfs bool
+	for _, mnt := range li.Mounts {
+		if mnt.InShadow {
+			continue
+		}
+		if mnt.Mountpoint == buildpath {
+			overlayfs = true
+		} else if mt := configed[mnt.Mountpoint]; len(mt) > 0 {
+			required = append(required, mt)
+		} else {
+			other = append(other, mnt.Mountpoint)
 		}
 	}
-	if len(base) > 0 {
-		out = append(out, leftpad + "required: " + strings.Join(base, ", "))
+	if len(required) > 0 {
+		out = append(out, leftpad + "required: " + strings.Join(required, ", "))
 	}
-	if _, exists := mounts[buildpath]; exists {
+	if overlayfs {
 		out = append(out, leftpad + "overlayfs")
-		delete(mounts, buildpath)
 	}
-	for _, mnt := range mounts {
-		out = append(out, leftpad + mnt.Mountpoint)
+	for _, m := range other {
+		out = append(out, leftpad + m)
 	}
 	return
 }
@@ -212,10 +217,10 @@ func (layer *Layerinfo) errorIfError() error {
 }
 
 
-func (layer *Layerinfo) errorIfBusy(operation string) error {
-	if layer.Busy || len(layer.Mounts) > 0 {
+func (layer *Layerinfo) errorIfBusy(operation string, testForMounts bool) error {
+	if layer.Busy || (testForMounts && len(layer.Mounts) > 0) {
 		var msg string
-		if len(layer.Mounts) > 0 {
+		if testForMounts && len(layer.Mounts) > 0 {
 			msg = "is mounted"
 		}
 		if layer.Busy {
@@ -255,7 +260,7 @@ func (ld *Layerdefs) RemoveLayer(name string, removeFiles bool) error {
 	if err != nil {
 		return err
 	}
-	err = layer.errorIfBusy("remove")
+	err = layer.errorIfBusy("remove", true)
 	if err != nil {
 		return err
 	}
@@ -295,7 +300,7 @@ func (ld *Layerdefs) RenameLayer(oldname, newname string) error {
 	if err != nil {
 		return err
 	}
-	err = layer.errorIfBusy("remove")
+	err = layer.errorIfBusy("remove", true)
 	if err != nil {
 		return err
 	}
@@ -305,7 +310,7 @@ func (ld *Layerdefs) RenameLayer(oldname, newname string) error {
 		if child.Base != oldname {
 			continue
 		}
-		err = child.errorIfBusy("rename parent")
+		err = child.errorIfBusy("rename parent", true)
 		if err != nil {
 			return err
 		}
@@ -353,7 +358,7 @@ func (ld *Layerdefs) RebaseLayer(name, newbase string) error {
 	if err != nil {
 		return err
 	}
-	err = layer.errorIfBusy("rebase")
+	err = layer.errorIfBusy("rebase", true)
 	if err != nil {
 		return err
 	}
@@ -368,7 +373,7 @@ func (ld *Layerdefs) RebaseLayer(name, newbase string) error {
 		if child.Base != name {
 			continue
 		}
-		err = child.errorIfBusy("rebase parent")
+		err = child.errorIfBusy("rebase parent", true)
 		if err != nil {
 			return err
 		}
@@ -561,7 +566,7 @@ func (ld *Layerdefs) Unmount(name string, unmountAll bool) error {
 
 func (ld *Layerdefs) unmountLayer(name string) (int, error) {
 	layer := ld.layermap[name]
-	err := layer.errorIfBusy("unmount")
+	err := layer.errorIfBusy("unmount", false)
 	if err != nil {
 		return Unmount_status_busy, err
 	}

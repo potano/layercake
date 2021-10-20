@@ -116,6 +116,7 @@ func main() {
 		"mkdirs": mkdirsCommand,
 		"mount": mountCommand,
 		"unmount": unmountCommand,
+		"umount": unmountCommand,
 		"chroot": chrootCommand,
 		"shake": shakeCommand,
 	}[command]

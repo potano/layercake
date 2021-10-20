@@ -269,7 +269,7 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo) {
 			fsErrors = append(fsErrors, err.Error())
 			continue
 		}
-		if !isDescendant {
+		if !isDescendant && (builddir != pair.Source) {
 			incorrectMounts = append(incorrectMounts, pair)
 			continue
 		}
@@ -293,7 +293,12 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo) {
 		layer.addMessage("error probing symlink: " + msg)
 	}
 	for _, pair := range incorrectMounts {
-		layer.addMessagef("%s has wrong mount source %s", pair.Mount, pair.Source)
+		if pair.Fstype == "symlink" {
+			layer.addMessagef("%s incorrectly symlinked from %s",
+				pair.Source, pair.Mount)
+		} else {
+			layer.addMessagef("%s has wrong mount source %s", pair.Mount, pair.Source)
+		}
 	}
 	for _, msg := range missingMountpoints {
 		layer.addMessage("missing mountpoint: " + msg)

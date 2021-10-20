@@ -29,14 +29,28 @@ var alpine_fresh =
 var alpine_fresh_replay =
 `device 0:4 proc
 device 0:6 devtmpfs
+device 0:8 debugfs shadowed
+device 0:9 tracefs shadowed
+device 0:15 mqueue shadowed
 device 0:16 sysfs
+device 0:17 devpts shadowed
+device 0:18 tmpfs shadowed
 device 0:19 tmpfs
+device 0:20 securityfs shadowed
+device 0:21 pstore shadowed
 device 8:1 ext4
 device 8:3 ext4
 mount 0:4 / /proc rw,nosuid,nodev,noexec,relatime
 mount 0:6 / /dev rw,nosuid,relatime
+mount 0:8 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime
+mount 0:9 / /sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime
+mount 0:15 / /dev/mqueue rw,nosuid,nodev,noexec,relatime
 mount 0:16 / /sys rw,nosuid,nodev,noexec,relatime
+mount 0:17 / /dev/pts rw,nosuid,noexec,relatime
+mount 0:18 / /dev/shm rw,nosuid,nodev,noexec,relatime
 mount 0:19 / /run rw,nodev,relatime
+mount 0:20 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime
+mount 0:21 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime
 mount 8:1 / /boot rw,relatime
 mount 8:3 / / rw,relatime`
 
@@ -72,17 +86,38 @@ var alpine_base1 =
 var alpine_base1_replay =
 `device 0:4 proc
 device 0:6 devtmpfs
+device 0:8 debugfs shadowed
+device 0:9 tracefs shadowed
+device 0:15 mqueue shadowed
 device 0:16 sysfs
+device 0:17 devpts shadowed
+device 0:18 tmpfs shadowed
 device 0:19 tmpfs
+device 0:20 securityfs shadowed
+device 0:21 pstore shadowed
 device 8:1 ext4
 device 8:3 ext4
 mount 0:4 / /proc rw,nosuid,nodev,noexec,relatime
 mount 0:4 / /var/lib/layercake/layers/base1/build/proc rw,relatime
 mount 0:6 / /dev rw,nosuid,relatime
 mount 0:6 / /var/lib/layercake/layers/base1/build/dev rw,nosuid,relatime
+mount 0:8 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime
+mount 0:8 / /var/lib/layercake/layers/base1/build/sys/kernel/debug rw,nosuid,nodev,noexec,relatime
+mount 0:9 / /sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime
+mount 0:9 / /var/lib/layercake/layers/base1/build/sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime
+mount 0:15 / /dev/mqueue rw,nosuid,nodev,noexec,relatime
+mount 0:15 / /var/lib/layercake/layers/base1/build/dev/mqueue rw,nosuid,nodev,noexec,relatime
 mount 0:16 / /sys rw,nosuid,nodev,noexec,relatime
 mount 0:16 / /var/lib/layercake/layers/base1/build/sys rw,nosuid,nodev,noexec,relatime
+mount 0:17 / /dev/pts rw,nosuid,noexec,relatime
+mount 0:17 / /var/lib/layercake/layers/base1/build/dev/pts rw,nosuid,noexec,relatime
+mount 0:18 / /dev/shm rw,nosuid,nodev,noexec,relatime
+mount 0:18 / /var/lib/layercake/layers/base1/build/dev/shm rw,nosuid,nodev,noexec,relatime
 mount 0:19 / /run rw,nodev,relatime
+mount 0:20 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime
+mount 0:20 / /var/lib/layercake/layers/base1/build/sys/kernel/security rw,nosuid,nodev,noexec,relatime
+mount 0:21 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime
+mount 0:21 / /var/lib/layercake/layers/base1/build/sys/fs/pstore rw,nosuid,nodev,noexec,relatime
 mount 8:1 / /boot rw,relatime
 mount 8:3 / / rw,relatime
 mount 8:3 /var/db/repos/gentoo /var/lib/layercake/layers/base1/build/var/db/repos/gentoo rw,relatime
@@ -101,6 +136,7 @@ func buildMountTree(filename, setup string) (Mounts, error) {
 	device_devices := map[string]string{}
 	mounts := map[string]*MountType{}
 	devices := map[string]*deviceType{}
+	shadowed_devices := map[string]bool{}
 
 	cursor := makeInputCursor(filename, setup)
 	defer cursor.Close()
@@ -114,6 +150,9 @@ func buildMountTree(filename, setup string) (Mounts, error) {
 		if op == "device" {
 			device_list = append(device_list, deviceType{name: st_dev})
 			device_devices[st_dev] = mp
+			if len(parts) > 3 && parts[3] == "shadowed" {
+				shadowed_devices[st_dev] = true
+			}
 		} else if op == "mount" {
 			if len(parts) < 5 {
 				return Mounts{}, fmt.Errorf("missing mount field(s): %s", line)
@@ -148,6 +187,9 @@ func buildMountTree(filename, setup string) (Mounts, error) {
 		mp.Fstype = device_devices[mnt.st_dev]
 		if mnt.root == "/" {
 			dev.roots = append(dev.roots, mnt.Mountpoint)
+			if shadowed_devices[mnt.st_dev] {
+				mp.InShadow = true
+			}
 		}
 	}
 	return Mounts{mount_list, device_list, mounts, devices}, nil
@@ -173,7 +215,7 @@ func stringSlicesHaveSameMembers(sl1, sl2 []string) bool {
 
 func compareMounts(mounts1, mounts2 Mounts) error {
 	if len(mounts1.mount_list) != len(mounts2.mount_list) {
-		return fmt.Errorf("expected mount list length %d, gotd %d",
+		return fmt.Errorf("expected mount list length %d, got %d",
 			len(mounts1.mount_list), len(mounts2.mount_list))
 	}
 	if len(mounts1.device_list) != len(mounts2.device_list) {
@@ -227,6 +269,11 @@ func compareMounts(mounts1, mounts2 Mounts) error {
 			return fmt.Errorf("expected to find Options %s for mountpoint %s, found %s",
 				v1.Options, k, v2.Options)
 		}
+		if v1.InShadow != v2.InShadow {
+			return fmt.Errorf(
+				"expected to find InShadow %t for mountpoint %s, found %t",
+				v1.InShadow, k, v2.InShadow)
+		}
 		if v1.st_dev != v2.st_dev {
 			return fmt.Errorf("expected to find st_dev %s for mountpoint %s, found %s",
 				v1.st_dev, k, v2.st_dev)
@@ -255,6 +302,7 @@ func displayMounts(mnts []MountType) {
 		fmt.Printf("      Source2: %s\n", info.Source2)
 		fmt.Printf("      Workdir: %s\n", info.Workdir)
 		fmt.Printf("      Options: %s\n", info.Options)
+		fmt.Printf("      InShadow: %t\n", info.InShadow)
 		fmt.Printf("      st_dev: %s\n", info.st_dev)
 		fmt.Printf("      Root: %s\n", info.root)
 	}
@@ -269,7 +317,8 @@ func TestMounts(t *testing.T) {
 		{"alpine single base mount", alpine_base1, alpine_base1_replay},
 	} {
 		t.Run(tst.name, func (t *testing.T) {
-			mounts, err := probeMountsCursor(makeInputCursor(tst.name, tst.blob))
+			AlternateProbeMountsCursor = makeInputCursor(tst.name, tst.blob)
+			mounts, err := ProbeMounts()
 			if err != nil {
 				t.Fatalf("while probing mouns: %s", err.Error())
 			}

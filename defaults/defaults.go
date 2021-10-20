@@ -14,7 +14,7 @@ const Exportdirs = "export"
 const ChrootExec = "/usr/bin/chroot"
 
 const MountinfoPath = "/proc/self/mountinfo"
-const ProlificFsTypes = "devtmpfs sysfs"
+const ShadowingFsTypes = "devtmpfs sysfs"
 
 const LayerconfigFile = "layerconfig"
 const SkeletonLayerconfigFile = "default_layerconfig.skel"

@@ -2,6 +2,7 @@ package fs
 
 import (
 	"path"
+	"sort"
 	"strings"
 
 	"potano.layercake/defaults"
@@ -13,6 +14,7 @@ type MountType struct {
 	Source2, Workdir string
 	Fstype string
 	Options string
+	InShadow bool
 	st_dev string
 	root string
 }
@@ -28,6 +30,23 @@ type Mounts struct {
 	mounts map[string]*MountType
 	devices map[string]*deviceType
 }
+
+type mountList []*MountType
+
+func (ml mountList) Len() int {
+	return len(ml)
+}
+
+func (ml mountList) Swap(i, j int) {
+	ml[j], ml[i] = ml[i], ml[j];
+}
+
+func (ml mountList) Less(i, j int) bool {
+	return ml[i].Mountpoint < ml[j].Mountpoint
+}
+
+
+var AlternateProbeMountsCursor LineReader
 
 
 /*  Extracts mount information from /proc/self/mountinfo
@@ -48,23 +67,24 @@ type Mounts struct {
  *    (11) super options:  per super block options
  */
 func ProbeMounts() (Mounts, error) {
-	cursor, err := NewTextInputFileCursor(defaults.MountinfoPath)
-	if err != nil {
-		return Mounts{}, err
+	cursor := AlternateProbeMountsCursor
+	var err error
+	if cursor == nil {
+		cursor, err = NewTextInputFileCursor(defaults.MountinfoPath)
+		if err != nil {
+			return Mounts{}, err
+		}
 	}
-	return probeMountsCursor(cursor)
-}
 
-func probeMountsCursor(cursor LineReader) (Mounts, error) {
 	mount_list := make([]MountType, 0, 100)
 	device_list := make([]deviceType, 0, 20)
 	mounts := map[string]*MountType{}
 	devices := map[string]*deviceType{}
-	prolific_fs_types := map[string]bool{}
-	skip_parents := map[string]bool{}
+	shadowing_fs_types := map[string]bool{}
+	shadowing_parents := map[string]bool{}
 
-	for _, tp := range strings.Split(defaults.ProlificFsTypes, " ") {
-		prolific_fs_types[tp] = true
+	for _, tp := range strings.Split(defaults.ShadowingFsTypes, " ") {
+		shadowing_fs_types[tp] = true
 	}
 
 	defer cursor.Close()
@@ -85,15 +105,16 @@ func probeMountsCursor(cursor LineReader) (Mounts, error) {
 		fstype := segments[i + 1]
 		fsname := unescape(segments[i + 2])
 
-		// Skip submounts of /dev and /sys
-		if prolific_fs_types[fstype] {
-			skip_parents[mountID] = true
-		} else if skip_parents[parentID] {
-			skip_parents[mountID] = true
-			continue
-		}
-
 		var source, source2, workdir string
+		var inShadow bool
+
+		// Skip submounts of /dev and /sys
+		if shadowing_fs_types[fstype] {
+			shadowing_parents[mountID] = true
+		} else if shadowing_parents[parentID] {
+			shadowing_parents[mountID] = true
+			inShadow = true
+		}
 
 		if fstype == "overlay" {
 			for _, part := range strings.Split(segments[i + 3], ",") {
@@ -111,7 +132,7 @@ func probeMountsCursor(cursor LineReader) (Mounts, error) {
 			}
 		}
 		mount_list = append(mount_list, MountType{source, mtpoint, source2, workdir,
-			fstype, options, st_dev, root})
+			fstype, options, inShadow, st_dev, root})
 		mounts[mtpoint] = &mount_list[len(mount_list) - 1]
 
 		var device *deviceType
@@ -134,9 +155,8 @@ func (m Mounts) GetMount(path string) *MountType {
 	return m.mounts[path]
 }
 
-
 func (m Mounts) GetMountAndSubmounts(path string) []*MountType {
-	list := make([]*MountType, 0, 20)
+	list := make(mountList, 0, 20)
 	if mnt := m.mounts[path]; mnt != nil {
 		list = append(list, mnt)
 	}
@@ -146,6 +166,7 @@ func (m Mounts) GetMountAndSubmounts(path string) []*MountType {
 			list = append(list, mnt)
 		}
 	}
+	sort.Sort(list)
 	return list
 }
 
