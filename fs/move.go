@@ -64,3 +64,11 @@ func Unmount(mounted string, force bool) error {
 	return nil
 }
 
+var SyscallMount func (string, string, string, uintptr, string) error
+var SyscallUnmount func (string, int) error
+
+func init() {
+	SyscallMount = syscall.Mount
+	SyscallUnmount = syscall.Unmount
+}
+

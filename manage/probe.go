@@ -202,7 +202,8 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo) {
 			return
 		}
 		mnt := ld.mounts.GetMount(builddir)
-		if nil == mnt {
+		if mnt == nil {
+			layer.State = Layerstate_mountable
 			return
 		}
 		if mnt.Fstype != "overlay" {
@@ -227,9 +228,12 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo) {
 			layer.State = Layerstate_error
 			return
 		}
+		if !minimalBuildDirsPresent(builddir) {
+			layer.addMessage("overlayfs but incomplete minimal build directories")
+			return
+		}
 		numMounted++
-	}
-	if !minimalBuildDirsPresent(builddir) {
+	} else if !minimalBuildDirsPresent(builddir) {
 		return
 	}
 	layer.State = Layerstate_inhabited
@@ -274,7 +278,11 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo) {
 			continue
 		}
 		if !fs.Exists(pair.Source) {
-			missingMountpoints = append(missingMountpoints, pair.Source)
+			mntpoint := pair.Source
+			if strings.HasPrefix(mntpoint, builddir) {
+				mntpoint = mntpoint[len(builddir):]
+			}
+			missingMountpoints = append(missingMountpoints, mntpoint)
 			continue
 		}
 		if fs.IsSymlink(pair.Mount) {

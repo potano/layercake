@@ -124,6 +124,103 @@ mount 8:3 /var/db/repos/gentoo /var/lib/layercake/layers/base1/build/var/db/repo
 mount 8:3 /var/cache/distfiles /var/lib/layercake/layers/base1/build/var/cache/distfiles rw,relatime`
 
 
+// Same Alpine-Linux system with base layer base1 and overlay layer der1 mounted
+var alpine_der1 =
+`16 21 0:4 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw
+17 21 0:16 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw
+18 21 0:6 / /dev rw,nosuid,relatime - devtmpfs devtmpfs rw,size=10240k,nr_inodes=125935,mode=755
+19 18 0:17 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,gid=5,mode=620,ptmxmode=000
+20 18 0:18 / /dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs shm rw
+21 0 8:3 / / rw,relatime - ext4 /dev/sda3 rw,data=ordered
+22 21 0:19 / /run rw,nodev,relatime - tmpfs tmpfs rw,size=101660k,mode=755
+23 18 0:15 / /dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw
+24 17 0:20 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime - securityfs securityfs rw
+25 17 0:8 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime - debugfs debugfs rw
+26 17 0:21 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime - pstore pstore rw
+27 25 0:9 / /sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime - tracefs tracefs rw
+29 21 8:1 / /boot rw,relatime - ext4 /dev/sda1 rw,data=ordered
+30 21 0:6 / /var/lib/layercake/layers/base1/build/dev rw,nosuid,relatime - devtmpfs devtmpfs rw,size=10240k,nr_inodes=125935,mode=755
+31 30 0:17 / /var/lib/layercake/layers/base1/build/dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,gid=5,mode=620,ptmxmode=000
+32 30 0:18 / /var/lib/layercake/layers/base1/build/dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs shm rw
+33 30 0:15 / /var/lib/layercake/layers/base1/build/dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw
+34 21 0:4 / /var/lib/layercake/layers/base1/build/proc rw,relatime - proc proc rw
+35 21 0:16 / /var/lib/layercake/layers/base1/build/sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw
+36 35 0:20 / /var/lib/layercake/layers/base1/build/sys/kernel/security rw,nosuid,nodev,noexec,relatime - securityfs securityfs rw
+37 35 0:8 / /var/lib/layercake/layers/base1/build/sys/kernel/debug rw,nosuid,nodev,noexec,relatime - debugfs debugfs rw
+38 37 0:9 / /var/lib/layercake/layers/base1/build/sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime - tracefs tracefs rw
+39 35 0:21 / /var/lib/layercake/layers/base1/build/sys/fs/pstore rw,nosuid,nodev,noexec,relatime - pstore pstore rw
+40 21 8:3 /var/db/repos/gentoo /var/lib/layercake/layers/base1/build/var/db/repos/gentoo rw,relatime - ext4 /dev/sda3 rw,data=ordered
+41 21 8:3 /var/cache/distfiles /var/lib/layercake/layers/base1/build/var/cache/distfiles rw,relatime - ext4 /dev/sda3 rw,data=ordered
+42 21 0:23 / /var/lib/layercake/layers/der1/build rw,relatime - overlay overlay rw,lowerdir=/var/lib/layercake/layers/base1/build,upperdir=/var/lib/layercake/layers/der1/overlayfs/upperdir,workdir=/var/lib/layercake/layers/der1/overlayfs/workdir
+45 42 0:6 / /var/lib/layercake/layers/der1/build/dev rw,nosuid,relatime - devtmpfs devtmpfs rw,size=10240k,nr_inodes=125935,mode=755
+46 45 0:17 / /var/lib/layercake/layers/der1/build/dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,gid=5,mode=620,ptmxmode=000
+47 45 0:18 / /var/lib/layercake/layers/der1/build/dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs shm rw
+48 45 0:15 / /var/lib/layercake/layers/der1/build/dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw
+49 42 0:4 / /var/lib/layercake/layers/der1/build/proc rw,relatime - proc proc rw
+50 42 0:16 / /var/lib/layercake/layers/der1/build/sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw
+51 50 0:20 / /var/lib/layercake/layers/der1/build/sys/kernel/security rw,nosuid,nodev,noexec,relatime - securityfs securityfs rw
+52 50 0:8 / /var/lib/layercake/layers/der1/build/sys/kernel/debug rw,nosuid,nodev,noexec,relatime - debugfs debugfs rw
+53 52 0:9 / /var/lib/layercake/layers/der1/build/sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime - tracefs tracefs rw
+54 50 0:21 / /var/lib/layercake/layers/der1/build/sys/fs/pstore rw,nosuid,nodev,noexec,relatime - pstore pstore rw
+55 42 8:3 /var/db/repos/gentoo /var/lib/layercake/layers/der1/build/var/db/repos/gentoo rw,relatime - ext4 /dev/sda3 rw,data=ordered
+56 42 8:3 /var/cache/distfiles /var/lib/layercake/layers/der1/build/var/cache/distfiles rw,relatime - ext4 /dev/sda3 rw,data=ordered
+`
+var alpine_der1_replay =
+`device 0:4 proc
+device 0:6 devtmpfs
+device 0:8 debugfs shadowed
+device 0:9 tracefs shadowed
+device 0:15 mqueue shadowed
+device 0:16 sysfs
+device 0:17 devpts shadowed
+device 0:18 tmpfs shadowed
+device 0:19 tmpfs
+device 0:20 securityfs shadowed
+device 0:21 pstore shadowed
+device 0:23 overlay
+device 8:1 ext4
+device 8:3 ext4
+mount 0:4 / /proc rw,nosuid,nodev,noexec,relatime
+mount 0:4 / /var/lib/layercake/layers/base1/build/proc rw,relatime
+mount 0:4 / /var/lib/layercake/layers/der1/build/proc rw,relatime
+mount 0:6 / /dev rw,nosuid,relatime
+mount 0:6 / /var/lib/layercake/layers/base1/build/dev rw,nosuid,relatime
+mount 0:6 / /var/lib/layercake/layers/der1/build/dev rw,nosuid,relatime
+mount 0:8 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime
+mount 0:8 / /var/lib/layercake/layers/base1/build/sys/kernel/debug rw,nosuid,nodev,noexec,relatime
+mount 0:8 / /var/lib/layercake/layers/der1/build/sys/kernel/debug rw,nosuid,nodev,noexec,relatime
+mount 0:9 / /sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime
+mount 0:9 / /var/lib/layercake/layers/base1/build/sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime
+mount 0:9 / /var/lib/layercake/layers/der1/build/sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime
+mount 0:15 / /dev/mqueue rw,nosuid,nodev,noexec,relatime
+mount 0:15 / /var/lib/layercake/layers/base1/build/dev/mqueue rw,nosuid,nodev,noexec,relatime
+mount 0:15 / /var/lib/layercake/layers/der1/build/dev/mqueue rw,nosuid,nodev,noexec,relatime
+mount 0:16 / /sys rw,nosuid,nodev,noexec,relatime
+mount 0:16 / /var/lib/layercake/layers/base1/build/sys rw,nosuid,nodev,noexec,relatime
+mount 0:16 / /var/lib/layercake/layers/der1/build/sys rw,nosuid,nodev,noexec,relatime
+mount 0:17 / /dev/pts rw,nosuid,noexec,relatime
+mount 0:17 / /var/lib/layercake/layers/base1/build/dev/pts rw,nosuid,noexec,relatime
+mount 0:17 / /var/lib/layercake/layers/der1/build/dev/pts rw,nosuid,noexec,relatime
+mount 0:18 / /dev/shm rw,nosuid,nodev,noexec,relatime
+mount 0:18 / /var/lib/layercake/layers/base1/build/dev/shm rw,nosuid,nodev,noexec,relatime
+mount 0:18 / /var/lib/layercake/layers/der1/build/dev/shm rw,nosuid,nodev,noexec,relatime
+mount 0:19 / /run rw,nodev,relatime
+mount 0:20 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime
+mount 0:20 / /var/lib/layercake/layers/base1/build/sys/kernel/security rw,nosuid,nodev,noexec,relatime
+mount 0:20 / /var/lib/layercake/layers/der1/build/sys/kernel/security rw,nosuid,nodev,noexec,relatime
+mount 0:21 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime
+mount 0:21 / /var/lib/layercake/layers/base1/build/sys/fs/pstore rw,nosuid,nodev,noexec,relatime
+mount 0:21 / /var/lib/layercake/layers/der1/build/sys/fs/pstore rw,nosuid,nodev,noexec,relatime
+mount 0:23 / /var/lib/layercake/layers/der1/build rw,relatime /var/lib/layercake/layers/base1/build /var/lib/layercake/layers/der1/overlayfs/upperdir /var/lib/layercake/layers/der1/overlayfs/workdir
+mount 8:1 / /boot rw,relatime
+mount 8:3 / / rw,relatime
+mount 8:3 /var/db/repos/gentoo /var/lib/layercake/layers/base1/build/var/db/repos/gentoo rw,relatime
+mount 8:3 /var/db/repos/gentoo /var/lib/layercake/layers/der1/build/var/db/repos/gentoo rw,relatime
+mount 8:3 /var/cache/distfiles /var/lib/layercake/layers/base1/build/var/cache/distfiles rw,relatime
+mount 8:3 /var/cache/distfiles /var/lib/layercake/layers/der1/build/var/cache/distfiles rw,relatime
+`
+
+
 func makeInputCursor(filename, text string) *TextInputCursor {
 	reader := strings.NewReader(text)
 	return NewTextInputCursor(filename, reader)
@@ -261,6 +358,10 @@ func compareMounts(mounts1, mounts2 Mounts) error {
 			return fmt.Errorf("expected to find Source2 %s for mountpoint %s, found %s",
 				v1.Source2, k, v2.Source2)
 		}
+		if v1.Workdir != v2.Workdir {
+			return fmt.Errorf("expected to find Workdir %s for mountpoint %s, found %s",
+				v1.Workdir, k, v2.Workdir)
+		}
 		if v1.Fstype != v2.Fstype {
 			return fmt.Errorf("expected to find Fstype %s for mountpoint %s, found %s",
 				v1.Fstype, k, v2.Fstype)
@@ -297,15 +398,19 @@ func displayDevices(devs map[string]*deviceType) {
 
 func displayMounts(mnts []MountType) {
 	for _, info := range mnts {
-		fmt.Printf("   %s (%s, %s)\n", info.Mountpoint, info.st_dev, info.Fstype)
-		fmt.Printf("      Source: %s\n", info.Source)
-		fmt.Printf("      Source2: %s\n", info.Source2)
-		fmt.Printf("      Workdir: %s\n", info.Workdir)
-		fmt.Printf("      Options: %s\n", info.Options)
-		fmt.Printf("      InShadow: %t\n", info.InShadow)
-		fmt.Printf("      st_dev: %s\n", info.st_dev)
-		fmt.Printf("      Root: %s\n", info.root)
+		displayMount(info)
 	}
+}
+
+func displayMount(mnt MountType) {
+	fmt.Printf("   %s (%s, %s)\n", mnt.Mountpoint, mnt.st_dev, mnt.Fstype)
+	fmt.Printf("      Source: %s\n", mnt.Source)
+	fmt.Printf("      Source2: %s\n", mnt.Source2)
+	fmt.Printf("      Workdir: %s\n", mnt.Workdir)
+	fmt.Printf("      Options: %s\n", mnt.Options)
+	fmt.Printf("      InShadow: %t\n", mnt.InShadow)
+	fmt.Printf("      st_dev: %s\n", mnt.st_dev)
+	fmt.Printf("      Root: %s\n", mnt.root)
 }
 
 
@@ -315,6 +420,7 @@ func TestMounts(t *testing.T) {
 	}{
 		{"fresh alpine", alpine_fresh, alpine_fresh_replay},
 		{"alpine single base mount", alpine_base1, alpine_base1_replay},
+		{"alpine derived mount", alpine_der1, alpine_der1_replay},
 	} {
 		t.Run(tst.name, func (t *testing.T) {
 			AlternateProbeMountsCursor = makeInputCursor(tst.name, tst.blob)

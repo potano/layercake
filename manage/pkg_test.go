@@ -9,6 +9,7 @@ import (
 	"strings"
 	"io/ioutil"
 	"potano.layercake/fs"
+	"potano.layercake/fns"
 	"potano.layercake/config"
 	"potano.layercake/defaults"
 
@@ -49,6 +50,16 @@ func (t *Tmpdir) Mkdir(dirname string) error {
 		t.want.MkdirAll(dirname)
 	}
 	return err
+}
+
+func (t *Tmpdir) Mkdirs(dirname, namelist string) error {
+	for _, name := range strings.Split(namelist, " ") {
+		err := t.Mkdir(path.Join(dirname, name))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (t *Tmpdir) WriteFile(filename, contents string) error {
@@ -906,25 +917,25 @@ export symlink /var/cache/binpkgs packages
 
 
 	if !t.Run("add_layer", func (t *testing.T) {
-		basic_layerdef :=
+		basic_layerdef := fns.Template(
 `import rbind /dev /dev
 import proc proc /proc
 import rbind /sys /sys
-import rbind /var/db/repos/gentoo /var/db/repos/gentoo
-import rbind /var/cache/distfiles /var/cache/distfiles
+import rbind {tmpdir}/var/db/repos/gentoo /var/db/repos/gentoo
+import rbind {tmpdir}/var/cache/distfiles /var/cache/distfiles
 
 export symlink /var/cache/binpkgs packages
-`
+`, map[string]string{"tmpdir": td.rootdir})
 
-		alt_layerdef :=
+		alt_layerdef := fns.Template(
 `import rbind /dev /dev
 import proc proc /proc
 import rbind /sys /sys
-import rbind /var/db/repos/gentoo /usr/portage
-import rbind /var/cache/distfiles /var/cache/distfiles
+import rbind {tmpdir}/var/db/repos/gentoo /usr/portage
+import rbind {tmpdir}/var/cache/distfiles /var/cache/distfiles
 
 export symlink /var/cache/binpkgs packages
-`
+`, map[string]string{"tmpdir": td.rootdir})
 
 		err := td.UpdateWantFiles()
 		if err != nil {
@@ -933,6 +944,7 @@ export symlink /var/cache/binpkgs packages
 		opts := &config.Opts{}
 		inuse := map[string]int{}
 
+		td.WriteFile("/var/lib/layercake/default_layerconfig.skel", basic_layerdef)
 
 		layers := getLayers(t, cfg, opts, inuse, "add base0")
 		err = layers.AddLayer("base0", "", "")
@@ -1041,6 +1053,71 @@ export symlink /var/cache/binpkgs packages
 			{"base1", "", false, false, []string{"not yet populated"}},
 			{"derived1", "base1", false, false, []string{"not yet populated"}},
 		}, "added derived0")
+
+
+		minimalBaseDirectories := "bin etc lib opt root sbin usr"
+		err = td.Mkdirs("/var/lib/layercake/layers/base0/build", minimalBaseDirectories)
+		if err != nil {
+			t.Fatalf("adding minimal entries to base0: %s", err)
+		}
+		layers = getLayers(t, cfg, opts, inuse, "added derived0")
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, []string{"build directories set up",
+				"missing mountpoint: /dev", "missing mountpoint: /proc",
+				"missing mountpoint: /sys",
+				"missing mountpoint: /var/db/repos/gentoo",
+				"missing mountpoint: /var/cache/distfiles",
+				"missing mountpoint: /var/cache/binpkgs"}},
+			{"derived0", "base0", false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, []string{"not yet populated"}},
+		}, "added minimal entries to base0")
+
+
+		err = td.Mkdirs("/var/lib/layercake/layers/base0/build", "dev proc sys")
+		if err != nil {
+			t.Fatalf("adding some mountpoint directories to base0: %s", err)
+		}
+		layers = getLayers(t, cfg, opts, inuse, "added derived0")
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, []string{"build directories set up",
+				"missing mountpoint: /var/db/repos/gentoo",
+				"missing mountpoint: /var/cache/distfiles",
+				"missing mountpoint: /var/cache/binpkgs"}},
+			{"derived0", "base0", false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, []string{"not yet populated"}},
+		}, "added some mountpoint directories to base0")
+
+
+		err = td.Mkdirs("/var/lib/layercake/layers/base0/build", "var/db/repos/gentoo " +
+			"var/cache/distfiles var/cache/binpkgs")
+		if err != nil {
+			t.Fatalf("adding remaining mountpoint directories to base0: %s", err)
+		}
+		layers = getLayers(t, cfg, opts, inuse, "added derived0")
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, []string{"build directories set up",
+				"missing host directory: " + td.Path("/var/db/repos/gentoo"),
+				"missing host directory: " + td.Path("/var/cache/distfiles")}},
+			{"derived0", "base0", false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, []string{"not yet populated"}},
+		}, "added some mountpoint directories to base0")
+
+
+		err = td.Mkdirs("/", "var/db/repos/gentoo var/cache/distfiles")
+		if err != nil {
+			t.Fatalf("adding most mount sources: %s", err)
+		}
+		layers = getLayers(t, cfg, opts, inuse, "added derived0")
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, []string{"mountable"}},
+			{"derived0", "base0", false, false, []string{"mountable"}},
+			{"base1", "", false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, []string{"not yet populated"}},
+		}, "added host mount sources")
+
 
 	}) {
 		return
