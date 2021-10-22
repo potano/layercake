@@ -244,7 +244,7 @@ func listCommand(cmdinfo commandInfo) {
 		}
 		if layer.Chroot {
 			more = append(more, "chroot")
-		} else if layer.Busy {
+		} else if layer.Busy || layer.Overlain {
 			more = append(more, "busy")
 		}
 		tbl.Print(layer.Name, basespec, strings.Join(more, ", "),

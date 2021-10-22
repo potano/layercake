@@ -1,6 +1,9 @@
 package fns
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 
 func TestTemplate(t *testing.T) {
@@ -64,5 +67,21 @@ func TestTemplate(t *testing.T) {
 	if expanded != "should \\see marker" {
 		t.Errorf("escaped backslash before marker returned '%s'", expanded)
 	}
+}
+
+
+func TestAndSlice(t *testing.T) {
+	tsCase := func (slice []string, expected string) {
+		got := AndSlice(slice)
+		if got != expected {
+			t.Errorf("expected %s for [\"%s\"], got %s", expected,
+				strings.Join(slice, "\" \""), got)
+		}
+	}
+	tsCase([]string{}, "")
+	tsCase([]string{"one"}, "one")
+	tsCase([]string{"one", "two"}, "one and two")
+	tsCase([]string{"one", "two", "three"}, "one, two, and three")
+	tsCase([]string{"one", "two", "three", "four"}, "one, two, three, and four")
 }
 

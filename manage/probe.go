@@ -117,6 +117,10 @@ func (ld *Layerdefs) refreshMountInfo() error {
 		return err
 	}
 	ld.mounts = mounts
+	lowerdirMap := mounts.GetOverlayLowerdirs()
+	for _, li := range ld.layermap {
+		li.Overlain = lowerdirMap[ld.buildPath(li)]
+	}
 	return nil
 }
 

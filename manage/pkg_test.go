@@ -500,7 +500,7 @@ func compareMounts(want, have []*fs.MountType) []string {
 
 type wantedLayerData struct {
 	Name, Base string
-	Busy, Chroot bool
+	Busy, Overlain, Chroot bool
 	Messages []string
 }
 
@@ -520,6 +520,10 @@ phase string) {
 		}
 		if l.Busy != want.Busy {
 			t.Fatalf("%s, layer %s has unexpected Busy=%t", phase, l.Name, l.Busy)
+		}
+		if l.Overlain != want.Overlain {
+			t.Fatalf("%s, layer %s has unexpected Overlain=%t", phase, l.Name,
+				l.Overlain)
 		}
 		if l.Chroot != want.Chroot {
 			t.Fatalf("%s, layer %s has unexpected Chroot=%t", phase, l.Name, l.Chroot)
@@ -574,6 +578,9 @@ func checkSameLayerinfo(t *testing.T, want Layerinfo, have *Layerinfo, phase str
 	if have.Busy != want.Busy {
 		problems.addf("Busy = %t", have.Busy)
 	}
+	if have.Overlain != want.Overlain {
+		problems.addf("Overlain = %t", have.Overlain)
+	}
 	if have.Chroot != want.Chroot {
 		problems.addf("Chroot = %t", have.Chroot)
 	}
@@ -610,6 +617,13 @@ func TestManage(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer td.Cleanup()
+
+	savedSyscallMount := fs.SyscallMount
+	savedSyscallUnmount := fs.SyscallUnmount
+	defer func () {
+		fs.SyscallMount = savedSyscallMount
+		fs.SyscallUnmount = savedSyscallUnmount
+	}()
 
 	cfg := td.MakeConfigTypeObj()
 
@@ -667,22 +681,26 @@ func TestManage(t *testing.T) {
 		}
 
 
+		testName := "skeleton layout"
 		li, err := ReadLayerFile(td.Path(layercake_skel_path), false)
 		if err != nil {
-			t.Fatalf("skeleton layout: got %s", err)
+			t.Fatalf("%s: got %s", testName, err)
 		}
 		checkSameLayerinfo(t, Layerinfo{
 			ConfigMounts: typicalConfigMounts,
 			ConfigExports: typicalConfigExports,
 			Mounts: emptyFsMounts,
-		}, li, "skeleton layout")
+		}, li, testName)
 
 		layerfileName := "test_layerfile"
 		layerfilePath := td.Path(layerfileName)
+
+		testName = "missing layerfile"
 		li, err = ReadLayerFile(layerfilePath, false)
-		td.checkIfPathNotFoundError(t, err, "open", layerfileName, "missing layerfile")
+		td.checkIfPathNotFoundError(t, err, "open", layerfileName, testName)
 
 
+		testName = "augmented layout"
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
 			import proc proc /proc
@@ -695,15 +713,16 @@ func TestManage(t *testing.T) {
 			NeededMountType{Mount: "build", Source: "/", Fstype: "symlink"})
 		li, err = ReadLayerFile(layerfilePath, true)
 		if err != nil {
-			t.Fatalf("augmented layout: got %s", err)
+			t.Fatalf("%s: got %s", testName, err)
 		}
 		checkSameLayerinfo(t, Layerinfo{
 			ConfigMounts: typicalConfigMounts,
 			ConfigExports: augmentedConfigExports,
 			Mounts: emptyFsMounts,
-		}, li, "augmented layout")
+		}, li, testName)
 
 
+		testName = "base specified"
 		td.WriteFile(layerfileName,
 			`# Comment
 			base basic
@@ -715,16 +734,17 @@ func TestManage(t *testing.T) {
 			export symlink /var/cache/binpkgs packages`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		if err != nil {
-			t.Fatalf("base specified: got %s", err)
+			t.Fatalf("%s: got %s", testName, err)
 		}
 		checkSameLayerinfo(t, Layerinfo{
 			Base: "basic",
 			ConfigMounts: typicalConfigMounts,
 			ConfigExports: typicalConfigExports,
 			Mounts: emptyFsMounts,
-		}, li, "base specified")
+		}, li, testName)
 
 
+		testName = "unknown keyword"
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
 			input rbind /here /there
@@ -735,9 +755,10 @@ func TestManage(t *testing.T) {
 			export symlink /var/cache/binpkgs packages`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "Unknown layerconf keyword 'input' in " +
-			layerfilePath + " line 2", "unknown keyword")
+			layerfilePath + " line 2", testName)
 
 
+		testName = "missing base name"
 		td.WriteFile(layerfileName,
 			`base
 			import rbind /dev /dev
@@ -748,9 +769,10 @@ func TestManage(t *testing.T) {
 			export symlink /var/cache/binpkgs packages`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "No base specified in " +
-			layerfilePath + " line 1", "missing base name")
+			layerfilePath + " line 1", testName)
 
 
+		testName = "invalid layer name"
 		td.WriteFile(layerfileName,
 			`base b.dir
 			import rbind /dev /dev
@@ -766,9 +788,10 @@ func TestManage(t *testing.T) {
 			ConfigMounts: typicalConfigMounts,
 			ConfigExports: typicalConfigExports,
 			Mounts: emptyFsMounts,
-		}, li, "invalid layer name")
+		}, li, testName)
 
 
+		testName = "2-argument import"
 		td.WriteFile(layerfileName,
 			`import rbind /dev
 			import proc proc /proc
@@ -778,9 +801,10 @@ func TestManage(t *testing.T) {
 			export symlink /var/cache/binpkgs packages`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "Incomplete import specification in " + layerfilePath +
-			" line 1", "2-argument import")
+			" line 1", testName)
 
 
+		testName = "2-argument export"
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
 			import proc proc /proc
@@ -790,11 +814,12 @@ func TestManage(t *testing.T) {
 			export symlink /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "Incomplete export specification in " +
-			layerfilePath + " line 6", "2-argument export")
+			layerfilePath + " line 6", testName)
 
 
+		testName = "2-argument export; soft error"
 		li, err = ReadLayerFile(layerfilePath, false)
-		checkErrorByMessage(t, err, "", "2-argument export; soft error")
+		checkErrorByMessage(t, err, "", testName)
 		checkSameLayerinfo(t, Layerinfo{
 			ConfigMounts: typicalConfigMounts,
 			ConfigExports: typicalConfigExports[:0],
@@ -802,9 +827,10 @@ func TestManage(t *testing.T) {
 				layerfilePath + " line 6"},
 			Mounts: emptyFsMounts,
 			State: 1,
-		}, li, "2-argument export; soft error")
+		}, li, testName)
 
 
+		testName = "no-base + 2-argument export; soft error"
 		td.WriteFile(layerfileName,
 			`base
 			import rbind /dev /dev
@@ -814,7 +840,7 @@ func TestManage(t *testing.T) {
 			import rbind /var/cache/distfiles /var/cache/distfiles
 			export symlink /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, false)
-		checkErrorByMessage(t, err, "", "no base + 2-argument export; soft error")
+		checkErrorByMessage(t, err, "", testName)
 		checkSameLayerinfo(t, Layerinfo{
 			ConfigMounts: typicalConfigMounts,
 			ConfigExports: typicalConfigExports[:0],
@@ -824,9 +850,10 @@ func TestManage(t *testing.T) {
 					layerfilePath + " line 7"},
 			Mounts: emptyFsMounts,
 			State: 1,
-		}, li, "no-base + 2-argument export; soft error")
+		}, li, testName)
 
 
+		testName = "multiple bases, same value"
 		td.WriteFile(layerfileName,
 			`# Comment
 			base fundamento
@@ -838,15 +865,16 @@ func TestManage(t *testing.T) {
 			import rbind /var/cache/distfiles /var/cache/distfiles
 			export symlink /var/cache/binpkgs packages`)
 		li, err = ReadLayerFile(layerfilePath, true)
-		checkErrorByMessage(t, err, "", "multiple bases, same value")
+		checkErrorByMessage(t, err, "", testName)
 		checkSameLayerinfo(t, Layerinfo{
 			Base: "fundamento",
 			ConfigMounts: typicalConfigMounts,
 			ConfigExports: typicalConfigExports,
 			Mounts: emptyFsMounts,
-		}, li, "multiple bases, same value")
+		}, li, testName)
 
 
+		testName = "multiple bases, different values"
 		td.WriteFile(layerfileName,
 			`# Comment
 			base fundament
@@ -859,7 +887,7 @@ func TestManage(t *testing.T) {
 			export symlink /var/cache/binpkgs packages`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "New conflicting setting of base property in " +
-			layerfilePath + " line 6", "multiple bases, same value")
+			layerfilePath + " line 6", testName)
 	}) {
 		return
 	}
@@ -880,6 +908,7 @@ func TestManage(t *testing.T) {
 		}
 
 
+		testName := "basic file"
 		layerfileName := "test_layerfile"
 		layerfilePath := td.Path(layerfileName)
 		li := Layerinfo{
@@ -896,8 +925,9 @@ import rbind /var/db/repos/gentoo /var/db/repos/gentoo
 import rbind /var/cache/distfiles /var/cache/distfiles
 
 export symlink /var/cache/binpkgs packages
-`, "basic file")
+`, testName)
 
+		testName = "extra import"
 		li.ConfigMounts = append(typicalConfigMounts, NeededMountType{
 			Mount: "/mnt/common", Source: "/root/common", Fstype: "rbind"})
 		err = WriteLayerfile(layerfilePath, &li)
@@ -910,7 +940,7 @@ import rbind /var/cache/distfiles /var/cache/distfiles
 import rbind /root/common /mnt/common
 
 export symlink /var/cache/binpkgs packages
-`, "extra import")
+`, testName)
 	}) {
 		return
 	}
@@ -946,179 +976,377 @@ export symlink /var/cache/binpkgs packages
 
 		td.WriteFile("/var/lib/layercake/default_layerconfig.skel", basic_layerdef)
 
+		testName := "add base0"
 		layers := getLayers(t, cfg, opts, inuse, "add base0")
 		err = layers.AddLayer("base0", "", "")
 		if err != nil {
-			t.Fatalf("add base0: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
 		td.want.MkdirAll("/var/lib/layercake/layers/base0/build")
 		td.want.WriteFile("/var/lib/layercake/layers/base0/layerconfig", basic_layerdef)
 		td.CheckAgainstWantedTree(t, "after adding base0")
-		layers = getLayers(t, cfg, opts, inuse, "after adding base0")
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, []string{"not yet populated"}},
-		}, "after adding base0")
+			{"base0", "", false, false, false, []string{"not yet populated"}},
+		}, testName)
 
+		testName = "remove just-added base0"
 		err = layers.RemoveLayer("base0", false)
 		if err != nil {
-			t.Fatalf("removed just-added base0: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
 		td.want.RemoveAll("/var/lib/layercake/layers/base0")
-		td.CheckAgainstWantedTree(t, "removed just-added base0")
-		checkLayerDescriptions(t, layers, []wantedLayerData{}, "removed just-added base0")
+		td.CheckAgainstWantedTree(t, testName)
+		checkLayerDescriptions(t, layers, []wantedLayerData{}, testName)
 
 
-		layers = getLayers(t, cfg, opts, inuse, "re-add base0")
+		testName = "re-add base0"
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		err = layers.AddLayer("base0", "", "")
 		if err != nil {
-			t.Fatalf("re-add base0: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
 		td.want.MkdirAll("/var/lib/layercake/layers/base0/build")
 		td.want.WriteFile("/var/lib/layercake/layers/base0/layerconfig", basic_layerdef)
-		td.CheckAgainstWantedTree(t, "after re-adding base0")
-		layers = getLayers(t, cfg, opts, inuse, "after re-adding base0")
+		td.CheckAgainstWantedTree(t, testName)
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, []string{"not yet populated"}},
-		}, "after re-adding base0")
+			{"base0", "", false, false, false, []string{"not yet populated"}},
+		}, testName)
 
 
+		testName = "add base1"
 		td.WriteFile("/var/lib/layercake/usrportage.skel", alt_layerdef)
-		layers = getLayers(t, cfg, opts, inuse, "add base1")
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		err = layers.AddLayer("base1", "", "usrportage.skel")
 		if err != nil {
-			t.Fatalf("add base1: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
 		td.want.MkdirAll("/var/lib/layercake/layers/base1/build")
 		td.want.WriteFile("/var/lib/layercake/layers/base1/layerconfig", alt_layerdef)
-		td.CheckAgainstWantedTree(t, "added base1")
-		layers = getLayers(t, cfg, opts, inuse, "added base1")
+		td.CheckAgainstWantedTree(t, testName)
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, []string{"not yet populated"}},
-		}, "added base1")
+			{"base0", "", false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+		}, testName)
 
 
-		layers = getLayers(t, cfg, opts, inuse, "add derived1")
+		testName = "add derived 1"
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		err = layers.AddLayer("derived1", "base1", "")
 		if err != nil {
-			t.Fatalf("add derived1: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
 		td.want.MkdirAll("/var/lib/layercake/layers/derived1/build")
 		td.want.WriteFile("/var/lib/layercake/layers/derived1/layerconfig",
 			"base base1\n\n" + alt_layerdef)
 		td.want.MkdirAll("/var/lib/layercake/layers/derived1/overlayfs/workdir")
 		td.want.MkdirAll("/var/lib/layercake/layers/derived1/overlayfs/upperdir")
-		td.CheckAgainstWantedTree(t, "added derived1")
-		layers = getLayers(t, cfg, opts, inuse, "added derived1")
+		td.CheckAgainstWantedTree(t, testName)
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, []string{"not yet populated"}},
-		}, "added derived1")
+			{"base0", "", false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+		}, testName)
 
 
-		layers = getLayers(t, cfg, opts, inuse, "attempt re-add derived1")
+		testName = "attempt to re-add derived1"
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		err = layers.AddLayer("derived1", "base1", "")
-		checkErrorByMessage(t, err, "Layer name 'derived1' already exists",
-			"attempt re-add derived1")
+		checkErrorByMessage(t, err, "Layer name 'derived1' already exists", testName)
 
 
-		layers = getLayers(t, cfg, opts, inuse, "attempt base cycle")
+		testName = "attempt base cycle"
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		err = layers.AddLayer("derived1", "derived1", "")
-		checkErrorByMessage(t, err, "Layer name 'derived1' already exists",
-			"attempt base cycle")
+		checkErrorByMessage(t, err, "Layer name 'derived1' already exists", testName)
 
 
-		layers = getLayers(t, cfg, opts, inuse, "attempt non-existent base")
+		testName = "add with non-existent base"
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		err = layers.AddLayer("derived2", "something1", "")
 		checkErrorByMessage(t, err, "Parent layer name 'something1' does not exist",
-			"attempt non-existent base")
+			testName)
 
 
-		layers = getLayers(t, cfg, opts, inuse, "add derived0")
+		testName = "add derived0"
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		err = layers.AddLayer("derived0", "base0", "")
 		if err != nil {
-			t.Fatalf("add derived0: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
 		td.want.MkdirAll("/var/lib/layercake/layers/derived0/build")
 		td.want.WriteFile("/var/lib/layercake/layers/derived0/layerconfig",
 			"base base0\n\n" + basic_layerdef)
 		td.want.MkdirAll("/var/lib/layercake/layers/derived0/overlayfs/workdir")
 		td.want.MkdirAll("/var/lib/layercake/layers/derived0/overlayfs/upperdir")
-		td.CheckAgainstWantedTree(t, "added derived0")
-		layers = getLayers(t, cfg, opts, inuse, "added derived0")
+		td.CheckAgainstWantedTree(t, testName)
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, []string{"not yet populated"}},
-			{"derived0", "base0", false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, []string{"not yet populated"}},
-		}, "added derived0")
+			{"base0", "", false, false, false, []string{"not yet populated"}},
+			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+		}, testName)
 
 
+		testName = "added minimal entries to base0"
 		minimalBaseDirectories := "bin etc lib opt root sbin usr"
 		err = td.Mkdirs("/var/lib/layercake/layers/base0/build", minimalBaseDirectories)
 		if err != nil {
-			t.Fatalf("adding minimal entries to base0: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
-		layers = getLayers(t, cfg, opts, inuse, "added derived0")
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, []string{"build directories set up",
+			{"base0", "", false, false, false, []string{"build directories set up",
 				"missing mountpoint: /dev", "missing mountpoint: /proc",
 				"missing mountpoint: /sys",
 				"missing mountpoint: /var/db/repos/gentoo",
 				"missing mountpoint: /var/cache/distfiles",
 				"missing mountpoint: /var/cache/binpkgs"}},
-			{"derived0", "base0", false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, []string{"not yet populated"}},
-		}, "added minimal entries to base0")
+			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+		}, testName)
 
 
+		testName = "add some mountpoint directories to base0"
 		err = td.Mkdirs("/var/lib/layercake/layers/base0/build", "dev proc sys")
 		if err != nil {
-			t.Fatalf("adding some mountpoint directories to base0: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
 		layers = getLayers(t, cfg, opts, inuse, "added derived0")
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, []string{"build directories set up",
+			{"base0", "", false, false, false, []string{"build directories set up",
 				"missing mountpoint: /var/db/repos/gentoo",
 				"missing mountpoint: /var/cache/distfiles",
 				"missing mountpoint: /var/cache/binpkgs"}},
-			{"derived0", "base0", false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, []string{"not yet populated"}},
-		}, "added some mountpoint directories to base0")
+			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+		}, testName)
 
 
+		testName = "add remaining mountpoint directories to base0"
 		err = td.Mkdirs("/var/lib/layercake/layers/base0/build", "var/db/repos/gentoo " +
 			"var/cache/distfiles var/cache/binpkgs")
 		if err != nil {
-			t.Fatalf("adding remaining mountpoint directories to base0: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
-		layers = getLayers(t, cfg, opts, inuse, "added derived0")
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, []string{"build directories set up",
+			{"base0", "", false, false, false, []string{"build directories set up",
 				"missing host directory: " + td.Path("/var/db/repos/gentoo"),
 				"missing host directory: " + td.Path("/var/cache/distfiles")}},
-			{"derived0", "base0", false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, []string{"not yet populated"}},
-		}, "added some mountpoint directories to base0")
+			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+		}, testName)
 
 
+		testName = "add host mount sources"
 		err = td.Mkdirs("/", "var/db/repos/gentoo var/cache/distfiles")
 		if err != nil {
-			t.Fatalf("adding most mount sources: %s", err)
+			t.Fatalf("%s: %s", testName, err)
 		}
-		layers = getLayers(t, cfg, opts, inuse, "added derived0")
+		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, []string{"mountable"}},
-			{"derived0", "base0", false, false, []string{"mountable"}},
-			{"base1", "", false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, []string{"not yet populated"}},
-		}, "added host mount sources")
+			{"base0", "", false, false, false, []string{"mountable"}},
+			{"derived0", "base0", false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+		}, testName)
 
 
+		testName = "attempt to remove base0"
+		err = layers.RemoveLayer("base0", true)
+		checkErrorByMessage(t, err, "Layer base0 has at least one child layer", testName)
+
+	}) {
+		return
+	}
+
+
+	if !t.Run("mount_layer", func (t *testing.T) {
+		m_ninja := newMountNinja()
+		fs.GetAlternateProbeMountsCursor = func () fs.LineReader {
+			mountinfo := m_ninja.mountinfo()
+			reader := strings.NewReader(mountinfo)
+			return fs.NewTextInputCursor("mountNinja", reader)
+		}
+		fs.SyscallMount = func (src, targ, fstype string, flgs uintptr, o string) error {
+			return m_ninja.mount(src, targ, fstype, o)
+		}
+		fs.SyscallUnmount = func (mtpoint string, flags int) error {
+			return m_ninja.unmount(mtpoint, flags)
+		}
+
+		opts := &config.Opts{}
+		inuse_all_idle := map[string]int{}
+
+
+		testName := "mount base0"
+		layers := getLayers(t, cfg, opts, inuse_all_idle, "mount base0")
+		err := layers.Mount("base0")
+		if err != nil {
+			t.Fatalf("%s: %s", testName, err)
+		}
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+			{"derived0", "base0", false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+		}, testName)
+
+
+		testName = "mount derived0"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.Mount("derived0")
+		if err != nil {
+			t.Fatalf("%s: %s", testName, err)
+		}
+		td.Mkdirs("/var/lib/layercake/layers/derived0/build", "bin dev etc lib opt proc " +
+			"root sbin sys usr /var/db/repos/gentoo /var/cach/distfiles " +
+			"var/cache/binpkgs var/cache/distfiles")
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, true, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+			{"derived0", "base0", false, false, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo",
+				"  overlayfs"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+		}, testName)
+
+
+		testName = "attempt to mount derived1"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.Mount("derived1")
+		checkErrorByMessage(t, err, "Layer base1 is not yet mountable", testName)
+
+
+		testName = "attempt to rename derived0"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.RenameLayer("derived0", "othername")
+		checkErrorByMessage(t, err, "Layer derived0 is mounted; cannot rename",
+			testName)
+
+
+		testName = "rebase derived1 to use derived0"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.RebaseLayer("derived1", "derived0")
+		if err != nil {
+			t.Fatalf("%s: %s", testName, err)
+		}
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, true, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+			{"derived0", "base0", false, false, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo",
+				"  overlayfs"}},
+			{"derived1", "derived0", false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+		}, testName)
+
+
+		testName = "mount derived1"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.Mount("derived1")
+		if err != nil {
+			t.Fatalf("%s: %s", testName, err)
+		}
+		td.Mkdirs("/var/lib/layercake/layers/derived1/build", "bin dev etc lib opt proc " +
+			"root sbin sys usr/portage /var/cach/distfiles " +
+			"var/cache/binpkgs var/cache/distfiles")
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, true, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+			{"derived0", "base0", false, true, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo",
+				"  overlayfs"}},
+			{"derived1", "derived0", false, false, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /usr/portage, /var/cache/distfiles",
+				"  overlayfs"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+		}, testName)
+
+
+		testName = "second attempt to rename derived0"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.RenameLayer("derived0", "othername")
+		checkErrorByMessage(t, err,
+			"Layer derived0 is mounted and is in use by overlay; cannot rename",
+			testName)
+
+
+		testName = "attempt to unmount derived0"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.Unmount("derived0", false)
+		checkErrorByMessage(t, err, "Layer derived0 is in use by overlay; cannot unmount",
+			testName)
+
+
+		testName = "unmount all layers"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.Unmount("", true)
+		if err != nil {
+			t.Fatalf("%s: %s", testName, err)
+		}
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, false, []string{"mountable"}},
+			{"derived0", "base0", false, false, false, []string{"mountable"}},
+			{"derived1", "derived0", false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+		}, testName)
+
+
+		testName = "mount derived1 with automatic mounting of ancestors"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.Mount("derived1")
+		if err != nil {
+			t.Fatalf("%s: %s", testName, err)
+		}
+		td.Mkdirs("/var/lib/layercake/layers/derived1/build", "bin dev etc lib opt proc " +
+			"root sbin sys usr/portage /var/cach/distfiles " +
+			"var/cache/binpkgs var/cache/distfiles")
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, true, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+			{"derived0", "base0", false, true, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo",
+				"  overlayfs"}},
+			{"derived1", "derived0", false, false, false, []string{"mounted and ready",
+				"Current mounts:",
+				"  required: /dev, /proc, /sys, /usr/portage, /var/cache/distfiles",
+				"  overlayfs"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+		}, testName)
+
+
+		testName = "attempt to rename derived0"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.RenameLayer("derived0", "othername")
+		checkErrorByMessage(t, err,
+			"Layer derived0 is mounted and is in use by overlay; cannot rename",
+			testName)
 	}) {
 		return
 	}

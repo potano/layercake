@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"potano.layercake/fs"
+	"potano.layercake/fns"
 	"potano.layercake/config"
 	"potano.layercake/defaults"
 )
@@ -58,7 +59,7 @@ type Layerinfo struct {
 	LayerPath string
 	State int
 	Messages []string
-	Busy, Chroot bool
+	Busy, Overlain, Chroot bool
 	Mounts []*fs.MountType
 }
 
@@ -217,19 +218,20 @@ func (layer *Layerinfo) errorIfError() error {
 }
 
 
-func (layer *Layerinfo) errorIfBusy(operation string, testForMounts bool) error {
-	if layer.Busy || (testForMounts && len(layer.Mounts) > 0) {
-		var msg string
-		if testForMounts && len(layer.Mounts) > 0 {
-			msg = "is mounted"
-		}
-		if layer.Busy {
-			if len(msg) > 0 {
-				msg += " and "
-			}
-			msg += "has active users"
-		}
-		return fmt.Errorf("Cannot %s layer %s because it %s", operation, layer.Name, msg)
+func (layer *Layerinfo) errorIfBusy(operation string, testIfMounted bool) error {
+	var msg []string
+	if testIfMounted && len(layer.Mounts) > 0 {
+		msg = []string{"is mounted"}
+	}
+	if layer.Busy {
+		msg = append(msg, "has active users")
+	}
+	if layer.Overlain {
+		msg = append(msg, "is in use by overlay")
+	}
+	if len(msg) > 0 {
+		return fmt.Errorf("Layer %s %s; cannot %s", layer.Name, fns.AndSlice(msg),
+			operation)
 	}
 	return nil
 }
@@ -300,7 +302,7 @@ func (ld *Layerdefs) RenameLayer(oldname, newname string) error {
 	if err != nil {
 		return err
 	}
-	err = layer.errorIfBusy("remove", true)
+	err = layer.errorIfBusy("rename", true)
 	if err != nil {
 		return err
 	}

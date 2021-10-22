@@ -54,6 +54,22 @@ mount 0:21 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime
 mount 8:1 / /boot rw,relatime
 mount 8:3 / / rw,relatime`
 
+var alpine_fresh_with_options =
+`16 21 0:4 / /proc rw,nosuid,nodev,noexec,relatime tag - proc proc rw
+17 21 0:16 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw
+18 21 0:6 / /dev rw,nosuid,relatime - devtmpfs devtmpfs rw,size=10240k,nr_inodes=125935,mode=755
+19 18 0:17 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,gid=5,mode=620,ptmxmode=000
+20 18 0:18 / /dev/shm rw,nosuid,nodev,noexec,relatime a:b - tmpfs shm rw
+21 0 8:3 / / rw,relatime a:b c:d e - ext4 /dev/sda3 rw,data=ordered
+22 21 0:19 / /run rw,nodev,relatime - tmpfs tmpfs rw,size=101660k,mode=755
+23 18 0:15 / /dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw
+24 17 0:20 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime - securityfs securityfs rw
+25 17 0:8 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime - debugfs debugfs rw
+26 17 0:21 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime - pstore pstore rw
+27 25 0:9 / /sys/kernel/debug/tracing rw,nosuid,nodev,noexec,relatime - tracefs tracefs rw
+29 21 8:1 / /boot rw,relatime - ext4 /dev/sda1 rw,data=ordered
+`
+
 
 // Same Alpine-Linux system with single layer mounted
 var alpine_base1 =
@@ -419,11 +435,14 @@ func TestMounts(t *testing.T) {
 		name, blob, setup string
 	}{
 		{"fresh alpine", alpine_fresh, alpine_fresh_replay},
+		{"fresh alpine w/ option tags", alpine_fresh_with_options, alpine_fresh_replay},
 		{"alpine single base mount", alpine_base1, alpine_base1_replay},
 		{"alpine derived mount", alpine_der1, alpine_der1_replay},
 	} {
 		t.Run(tst.name, func (t *testing.T) {
-			AlternateProbeMountsCursor = makeInputCursor(tst.name, tst.blob)
+			GetAlternateProbeMountsCursor = func () LineReader {
+				return makeInputCursor(tst.name, tst.blob)
+			}
 			mounts, err := ProbeMounts()
 			if err != nil {
 				t.Fatalf("while probing mouns: %s", err.Error())

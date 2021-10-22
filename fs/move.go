@@ -42,7 +42,7 @@ func Mount(source, target, fstype, options string) error {
 		case "remount":
 			flags = syscall.MS_REMOUNT
 		}
-		err := syscall.Mount(source, target, fstype, flags, options)
+		err := SyscallMount(source, target, fstype, flags, options)
 		if nil != err {
 			return fmt.Errorf("Cannot mount %s: %s", target, err)
 		}
@@ -56,7 +56,7 @@ func Unmount(mounted string, force bool) error {
 		if force {
 			flags |= syscall.MNT_FORCE
 		}
-		err := syscall.Unmount(mounted, flags)
+		err := SyscallUnmount(mounted, flags)
 		if err != nil {
 			return fmt.Errorf("Cannot unmount %s: %s", mounted, err)
 		}

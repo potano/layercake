@@ -46,7 +46,7 @@ func (ml mountList) Less(i, j int) bool {
 }
 
 
-var AlternateProbeMountsCursor LineReader
+var GetAlternateProbeMountsCursor func () LineReader
 
 
 /*  Extracts mount information from /proc/self/mountinfo
@@ -67,9 +67,11 @@ var AlternateProbeMountsCursor LineReader
  *    (11) super options:  per super block options
  */
 func ProbeMounts() (Mounts, error) {
-	cursor := AlternateProbeMountsCursor
+	var cursor LineReader
 	var err error
-	if cursor == nil {
+	if GetAlternateProbeMountsCursor != nil {
+		cursor = GetAlternateProbeMountsCursor()
+	} else {
 		cursor, err = NewTextInputFileCursor(defaults.MountinfoPath)
 		if err != nil {
 			return Mounts{}, err
@@ -200,6 +202,17 @@ func (m Mounts) MountSourceIsExpected(mnt *MountType, test string) bool {
 		}
 	}
 	return false
+}
+
+
+func (m Mounts) GetOverlayLowerdirs() map[string]bool {
+	out := map[string]bool{}
+	for _, mnt := range m.mount_list {
+		if mnt.Fstype == "overlay" {
+			out[mnt.Source] = true
+		}
+	}
+	return out
 }
 
 
