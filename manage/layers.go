@@ -203,6 +203,17 @@ func (ld *Layerdefs) AddLayer(name, base, configFile string) error {
 		if err != nil {
 			return err
 		}
+	} else {
+		rootuserPath := path.Join(ld.buildPath(layer), "root")
+		rootuserBashrcPath := path.Join(rootuserPath, ".bashrc")
+		err = fs.Mkdir(rootuserPath)
+		if err != nil {
+			return err
+		}
+		err = fs.WriteTextFile(rootuserBashrcPath, defaults.BaseLayerRootBashrc)
+		if err != nil {
+			return err
+		}
 	}
 	ld.layermap[name] = layer
 	ld.normalizeOrder()
@@ -526,7 +537,7 @@ const (
 
 func (ld *Layerdefs) Unmount(name string, unmountAll bool) error {
 	if len(name) > 0 && unmountAll {
-		fmt.Errorf("Cannot specify unmount of a specific layer and also all layers")
+		return fmt.Errorf("Cannot specify unmount of a specific layer and also all layers")
 	}
 	if len(name) > 0 {
 		err := ld.testName(nametest{name, name_need, "Layer"})

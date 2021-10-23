@@ -45,4 +45,17 @@ const ExportIndexHtml = `<!DOCTYPE html>
       <div>Serves prebuilt Gentoo packages</div>
    </body>
 </html>
+
 `
+
+const BaseLayerRootBashrc = `#!/bin/bash
+
+source /etc/profile
+msg=chroot
+if [ -n "$LAYERCAKE_LAYER" ]; then
+        msg="chroot $LAYERCAKE_LAYER"
+fi
+export PS1="($msg) \[\033]0;\u@\h:\w\007\]\[\033[01;31m\]\h\[\033[01;34m\] \w \$\[\033[00m\] "
+
+`
+

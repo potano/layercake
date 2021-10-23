@@ -346,11 +346,18 @@ func (m *messageSlice) addf(format string, p...interface{}) {
 
 
 
+type capturingMessageWriterType struct {
+	b *bytes.Buffer
+}
 
-var capturingMessageWriter *bytes.Buffer
+func (cmr capturingMessageWriterType) Write(msg []byte) (int, error) {
+	return cmr.b.Write(append(msg,  '\n'))
+}
+
+var capturingMessageWriter capturingMessageWriterType = capturingMessageWriterType{&bytes.Buffer{}}
 
 func readMessage() string {
-	return capturingMessageWriter.String()
+	return capturingMessageWriter.b.String()
 }
 
 
@@ -620,10 +627,6 @@ func TestManage(t *testing.T) {
 
 	savedSyscallMount := fs.SyscallMount
 	savedSyscallUnmount := fs.SyscallUnmount
-	defer func () {
-		fs.SyscallMount = savedSyscallMount
-		fs.SyscallUnmount = savedSyscallUnmount
-	}()
 
 	cfg := td.MakeConfigTypeObj()
 
@@ -984,6 +987,9 @@ export symlink /var/cache/binpkgs packages
 		}
 		td.want.MkdirAll("/var/lib/layercake/layers/base0/build")
 		td.want.WriteFile("/var/lib/layercake/layers/base0/layerconfig", basic_layerdef)
+		td.want.MkdirAll("/var/lib/layercake/layers/base0/build/root")
+		td.want.WriteFile("/var/lib/layercake/layers/base0/build/root/.bashrc",
+			defaults.BaseLayerRootBashrc)
 		td.CheckAgainstWantedTree(t, "after adding base0")
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
@@ -1008,6 +1014,9 @@ export symlink /var/cache/binpkgs packages
 		}
 		td.want.MkdirAll("/var/lib/layercake/layers/base0/build")
 		td.want.WriteFile("/var/lib/layercake/layers/base0/layerconfig", basic_layerdef)
+		td.want.MkdirAll("/var/lib/layercake/layers/base0/build/root")
+		td.want.WriteFile("/var/lib/layercake/layers/base0/build/root/.bashrc",
+			defaults.BaseLayerRootBashrc)
 		td.CheckAgainstWantedTree(t, testName)
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
@@ -1024,6 +1033,9 @@ export symlink /var/cache/binpkgs packages
 		}
 		td.want.MkdirAll("/var/lib/layercake/layers/base1/build")
 		td.want.WriteFile("/var/lib/layercake/layers/base1/layerconfig", alt_layerdef)
+		td.want.MkdirAll("/var/lib/layercake/layers/base1/build/root")
+		td.want.WriteFile("/var/lib/layercake/layers/base1/build/root/.bashrc",
+			defaults.BaseLayerRootBashrc)
 		td.CheckAgainstWantedTree(t, testName)
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
@@ -1182,6 +1194,11 @@ export symlink /var/cache/binpkgs packages
 		fs.SyscallUnmount = func (mtpoint string, flags int) error {
 			return m_ninja.unmount(mtpoint, flags)
 		}
+		defer func () {
+			fs.GetAlternateProbeMountsCursor = nil
+			fs.SyscallMount = savedSyscallMount
+			fs.SyscallUnmount = savedSyscallUnmount
+		}()
 
 		opts := &config.Opts{}
 		inuse_all_idle := map[string]int{}
@@ -1347,6 +1364,37 @@ export symlink /var/cache/binpkgs packages
 		checkErrorByMessage(t, err,
 			"Layer derived0 is mounted and is in use by overlay; cannot rename",
 			testName)
+
+
+		testName = "attempt to unmount all with layer name specified"
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.Unmount("someName", true)
+		checkErrorByMessage(t, err,
+			"Cannot specify unmount of a specific layer and also all layers",
+			testName)
+
+
+		testName = "verbosely unmount all layers"
+		opts.Verbose = true
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		err = layers.Unmount("", true)
+		if err != nil {
+			t.Fatalf("%s: %s", testName, err)
+		}
+		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"base0", "", false, false, false, []string{"mountable"}},
+			{"derived0", "base0", false, false, false, []string{"mountable"}},
+			{"derived1", "derived0", false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, []string{"not yet populated"}},
+		}, testName)
+		msg := readMessage()
+		if msg != "Layer base1 was not mounted\n" +
+			"Unmounted layer derived1\n" +
+			"Unmounted layer derived0\n" +
+			"Unmounted layer base0\n" {
+			t.Fatalf("%s: got verbose message %s", testName, msg)
+		}
 	}) {
 		return
 	}
