@@ -1,6 +1,7 @@
 package manage
 
 import (
+	"path"
 	"strings"
 
 	"potano.layercake/fs"
@@ -38,15 +39,21 @@ func ReadLayerFile(filename string, harderror bool) (*Layerinfo, error) {
 			if len(fields) < 4 {
 				cursor.LogError("Incomplete import specification")
 			} else {
+				mount := path.Clean(fields[3])
+				source := path.Clean(fields[2])
+				fstype := fields[1]
 				layer.ConfigMounts = append(layer.ConfigMounts,
-					NeededMountType{fields[3], fields[2], fields[1]})
+					NeededMountType{mount, source, fstype})
 			}
 		case "export":
 			if len(fields) < 4 {
 				cursor.LogError("Incomplete export specification")
 			} else {
+				mount := path.Clean(fields[3])
+				source := path.Clean(fields[2])
+				fstype := fields[1]
 				layer.ConfigExports = append(layer.ConfigExports,
-					NeededMountType{fields[3], fields[2], fields[1]})
+					NeededMountType{mount, source, fstype})
 			}
 		default:
 			cursor.LogError("Unknown layerconf keyword '" + fields[0] + "'")

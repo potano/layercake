@@ -60,9 +60,10 @@ func (mn *mountNinja) mount(source, mtpoint, fstype, options string) error {
 				if mntlen > max_match {
 					st_dev = mnt.st_dev
 					fstype = mnt.fstype
-					root = source
 					if srclen == mntlen {
 						root = "/"
+					} else {
+						root = source[mntlen:]
 					}
 					max_match = mntlen
 				}

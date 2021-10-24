@@ -185,9 +185,9 @@ func (m Mounts) GetMountSources(mnt *MountType) []string {
 			root = ""
 		}
 		for _, mp := range device.roots {
-			src := mp + root
+			src := path.Join(mp, root)
 			if src != mnt.Mountpoint {
-				out = append(out, path.Join(mp, root))
+				out = append(out, src)
 			}
 		}
 	}

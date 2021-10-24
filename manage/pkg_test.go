@@ -725,6 +725,25 @@ func TestManage(t *testing.T) {
 		}, li, testName)
 
 
+		testName = "paths with extraneous slashes"
+		td.WriteFile(layerfileName,
+			`import rbind /dev /dev
+			import proc proc /proc/
+			import rbind /sys /sys
+			import rbind /var/db/repos/gentoo /var/db/repos/gentoo/
+			import rbind /var/cache//distfiles/ /var/cache/distfiles
+			export symlink /var/cache/binpkgs/ packages`)
+		li, err = ReadLayerFile(layerfilePath, true)
+		if err != nil {
+			t.Fatalf("%s: got %s", testName, err)
+		}
+		checkSameLayerinfo(t, Layerinfo{
+			ConfigMounts: typicalConfigMounts,
+			ConfigExports: typicalConfigExports,
+			Mounts: emptyFsMounts,
+		}, li, testName)
+
+
 		testName = "base specified"
 		td.WriteFile(layerfileName,
 			`# Comment
