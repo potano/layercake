@@ -67,6 +67,21 @@ func (tic *TextInputCursor) ReadLine(s *string) bool {
 }
 
 
+func (tic *TextInputCursor) ReadNonBlankNonCommentLine(s *string) bool {
+	for {
+		rc := tic.ReadLine(s)
+		if rc == false {
+			return false
+		}
+		ll := strings.TrimSpace(*s)
+		if len(ll) > 0 && ll[0] != '#' && (len(ll) < 2 || ll[:2] != "//") {
+			break
+		}
+	}
+	return true
+}
+
+
 func (tic *TextInputCursor) Close() {}
 
 

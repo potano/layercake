@@ -60,6 +60,13 @@ func IsDir(filename string) bool {
 }
 
 
+func IsDirNotSymlink(filename string) bool {
+	var stat syscall.Stat_t
+	err := syscall.Lstat(filename, &stat)
+	return nil == err && (stat.Mode & syscall.S_IFMT) == syscall.S_IFDIR
+}
+
+
 func IsSymlink(filename string) bool {
 	var stat syscall.Stat_t
 	err := syscall.Lstat(filename, &stat)
@@ -80,7 +87,7 @@ func IsFileOrDir(filename string, wantFile bool) bool {
 
 func Exists(filename string) bool {
 	var stat syscall.Stat_t
-	err := syscall.Stat(filename, &stat)
+	err := syscall.Lstat(filename, &stat)
 	return nil == err
 }
 
