@@ -244,20 +244,25 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo) {
 
 	missingMountpoints := []string{}
 	missingMountSources := []string{}
-	incorrectMounts := []NeededMountType{}
+	incorrectMounts := []expandedNeededMountType{}
 	fsErrors := []string{}
 
-	for _, pair := range layer.ConfigMounts {
-		target := path.Join(builddir, pair.Mount)
-		if !fs.Exists(target) {
-			missingMountpoints = append(missingMountpoints, pair.Mount)
+	mounts, err := ld.expandConfigMounts(layer)
+	if err != nil {
+		layer.addMessage(err.Error())
+		return
+	}
+	for _, pair := range mounts {
+		if !fs.Exists(pair.Mount) {
+			missingMountpoints = append(missingMountpoints, pair.UnexpandedMount)
 			continue
 		}
-		if path.IsAbs(pair.Source) && !fs.Exists(pair.Source) {
+		if path.IsAbs(pair.Source) && !fs.Exists(pair.Source) &&
+			! ld.inAnyLayerDirectory(pair.Source) {
 			missingMountSources = append(missingMountSources, pair.Source)
 			continue
 		}
-		mnt := ld.mounts.GetMount(target)
+		mnt := ld.mounts.GetMount(pair.Mount)
 		if mnt == nil {
 			continue
 		}
@@ -267,7 +272,7 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo) {
 		}
 	}
 	// Note that we don't count missing export symlinks to be errors.  Mounting creates them
-	exports, err := ld.expandLayerExportEndpoints(layer)
+	exports, err := ld.expandConfigExports(layer)
 	if err != nil {
 		fsErrors = append(fsErrors, err.Error())
 	}

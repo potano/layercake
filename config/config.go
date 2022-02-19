@@ -17,6 +17,7 @@ type ConfigType struct {
 	Basepath string
 	Layerdirs string
 	LayerBuildRoot string
+	LayerBinPkgdir string
 	LayerOvfsWorkdir string
 	LayerOvfsUpperdir string
 	Exportdirs string
@@ -42,9 +43,9 @@ type cfsetup struct {
 
 var settingSetup = []cfsetup {
 	cfsetup{"basepath", ss_dir, "", defaults.BasePath},
-	cfsetup{"configfile", ss_file, "basepath", defaults.MainConfigFile},
 	cfsetup{"layerdirs", ss_dir, "basepath", defaults.Layerdirs},
 	cfsetup{"buildroot", ss_value, "", defaults.Builddir},
+	cfsetup{"binpkgdir", ss_value, "", defaults.Pkgdir},
 	cfsetup{"workdir", ss_value, "", defaults.Workdir},
 	cfsetup{"upperdir", ss_value, "", defaults.Upperdir},
 	cfsetup{"exportroot", ss_dir, "basepath", defaults.Exportdirs},
@@ -161,6 +162,7 @@ func Load(configfile string, basepath string) (*ConfigType, error) {
 		Basepath: setup["basepath"],
 		Layerdirs: setup["layerdirs"],
 		LayerBuildRoot: setup["buildroot"],
+		LayerBinPkgdir: setup["binpkgdir"],
 		LayerOvfsWorkdir: setup["workdir"],
 		LayerOvfsUpperdir: setup["upperdir"],
 		Exportdirs: setup["exportroot"],
@@ -179,21 +181,18 @@ func readConfigFile(filename string) (map[string]string, error) {
 	}
 	defer cursor.Close()
 	var line string
-	for cursor.ReadLine(&line) {
-		if len(line) < 1 || line[0] == '#' || (len(line) > 1 && "//" == line[:2]) {
-			continue
-		}
-		line = strings.Trim(line, " \t\r\n")
+	for cursor.ReadNonBlankNonCommentLine(&line) {
+		line = strings.TrimSpace(line)
 		parts := strings.SplitN(line, "=", 2)
 		var val string
 		if len(parts) > 1 {
-			val = strings.Trim(parts[1], " \t")
+			val = strings.TrimSpace(parts[1])
 		}
 		if len(val) < 1 {
 			continue
 		}
 		var key string
-		switch strings.ToUpper(strings.Trim(parts[0], " \t")) {
+		switch strings.ToUpper(strings.TrimSpace(parts[0])) {
 		case "BASEPATH":
 			key = "basepath"
 		case "CONFIGFILE", "CONFIG_FILE":
@@ -202,6 +201,8 @@ func readConfigFile(filename string) (map[string]string, error) {
 			key = "layerdirs"
 		case "BUILDROOT":
 			key = "buildroot"
+		case "BINPKGDIR":
+			key = "binpkgdir"
 		case "OVERFS_WORKDIR", "WORKDIR":
 			key = "workdir"
 		case "OVERFS_UPPERDIR", "UPPERDIR":

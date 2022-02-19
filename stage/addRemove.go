@@ -3,7 +3,6 @@ package stage
 import (
 	"fmt"
 	"path"
-	"strings"
 	"path/filepath"
 	"potano.layercake/fs"
 	"potano.layercake/defaults"
@@ -74,9 +73,12 @@ func (fl *FileList) removeFiles(entry lineInfo) error {
 
 
 func (fl *FileList) addFiles(entry lineInfo) (err error) {
-	if len(entry.source) > 0 && strings.HasPrefix(entry.source, defaults.TreeRootDirPrefix) {
-		entry.source = path.Join(fl.rootDir,
-			entry.source[:len(defaults.TreeRootDirPrefix)-1])
+	if len(entry.source) > 0 {
+		src, err := fl.resolveSourceLocation(entry.source)
+		if err != nil {
+			return err
+		}
+		entry.source = src
 	}
 	if entry.hasWildcard {
 		err = fl.addFromWildcard(entry)
@@ -87,11 +89,13 @@ func (fl *FileList) addFiles(entry lineInfo) (err error) {
 }
 
 
-func resolveSourceLocation(treeroot, name string) string {
-	if name[:6] == "$root/" {
-		return path.Join(treeroot, name[:6])
-	}
-	return name
+func (fl *FileList) resolveSourceLocation(name string) (string, error) {
+	return fs.AdjustPrefixedPath(name, ".", func (symbol, tail string) (string, error) {
+		if symbol == defaults.TreeRootDirPrefixName {
+			return fl.rootDir, nil
+		}
+		return "", fmt.Errorf("unknown prefix name %s", symbol)
+	})
 }
 
 
@@ -101,7 +105,7 @@ func (fl *FileList) addFromWildcard(entry lineInfo) error {
 	var choplen int
 	useSource := len(source) > 0
 	if useSource {
-		globname = resolveSourceLocation(fl.rootDir, source)
+		globname = source
 		choplen = len(path.Dir(globname))
 		prefix = name
 	} else {

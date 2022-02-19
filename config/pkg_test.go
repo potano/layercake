@@ -154,6 +154,10 @@ func compareConfigType(expt, have *ConfigType) error {
 		return fmt.Errorf("expected Layerdirs=%s, got %s", expt.LayerBuildRoot,
 			have.LayerBuildRoot)
 	}
+	if expt.LayerBinPkgdir != have.LayerBinPkgdir {
+		return fmt.Errorf("expected LayerBinPkgdir=%s, got %s", expt.LayerBinPkgdir,
+			have.LayerBinPkgdir)
+	}
 	if expt.LayerOvfsWorkdir != have.LayerOvfsWorkdir {
 		return fmt.Errorf("expected LayerOvfsWorkdir=%s, got %s", expt.LayerOvfsWorkdir,
 			have.LayerOvfsWorkdir)
@@ -219,6 +223,7 @@ func makeConfigTypeObj(m confTypeMap) *ConfigType {
 		Basepath: defaults.BasePath,
 		Layerdirs: path.Join(defaults.BasePath, defaults.Layerdirs),
 		LayerBuildRoot: defaults.Builddir,
+		LayerBinPkgdir: defaults.Pkgdir,
 		LayerOvfsWorkdir: defaults.Workdir,
 		LayerOvfsUpperdir: defaults.Upperdir,
 		Exportdirs: path.Join(defaults.BasePath, defaults.Exportdirs),
@@ -235,6 +240,8 @@ func makeConfigTypeObj(m confTypeMap) *ConfigType {
 				obj.Layerdirs = value.(string)
 			case "buildroot":
 				obj.LayerBuildRoot = value.(string)
+			case "binpkgdir":
+				obj.LayerBinPkgdir = value.(string)
 			case "workdir":
 				obj.LayerOvfsWorkdir = value.(string)
 			case "upperdir":
@@ -263,6 +270,7 @@ func makeCases(td *Tmpdir) (*tstcases, error) {
 		ssmap{},
 		makeConfigTypeObj(nil))
 
+
 	tc.AddFile(td, "just_basepath", "just_basepath.conf",
 		"basepath = {basepath}",
 		normResult,
@@ -289,6 +297,7 @@ func makeCases(td *Tmpdir) (*tstcases, error) {
 		ConfigFile={configfile}
 		LAYERS={layerdirs}
 		buildroot = {buildroot} 
+		binpkgdir = {binpkgdir}
 		workdir = {workdir}
 		upperdir= {upperdir}
 		exportroot ={exportroot}
@@ -299,6 +308,7 @@ func makeCases(td *Tmpdir) (*tstcases, error) {
 			"configfile": td.Path("emptyfile.conf"),
 			"layerdirs": "layer_root",
 			"buildroot": "bld",
+			"binpkgdir": "packages",
 			"workdir": "overlayfs/work",
 			"upperdir": "overlayfs/upper",
 			"exportroot": "export_root",
@@ -307,6 +317,7 @@ func makeCases(td *Tmpdir) (*tstcases, error) {
 			"basepath": td.Path("/var/lib/binpackager"),
 			"layerdirs": td.Path("/var/lib/binpackager/layer_root"),
 			"buildroot": "bld",
+			"binpkgdir": "packages",
 			"workdir": "overlayfs/work",
 			"upperdir": "overlayfs/upper",
 			"exportroot": td.Path("/var/lib/binpackager/export_root"),

@@ -322,6 +322,7 @@ func (t *Tmpdir) MakeConfigTypeObj() *config.ConfigType {
 	return &config.ConfigType{
 		Basepath: basePath,
 		Layerdirs: path.Join(basePath, defaults.Layerdirs),
+		LayerBinPkgdir: defaults.Pkgdir,
 		LayerBuildRoot: defaults.Builddir,
 		LayerOvfsWorkdir: defaults.Workdir,
 		LayerOvfsUpperdir: defaults.Upperdir,
@@ -364,10 +365,10 @@ func readMessage() string {
 
 const (
 	layercake_path = "var/lib/layercake"
-	layercake_layers_path = "var/lib/layercake/layers"
-	layercake_export_path = "var/lib/layercake/export"
-	layercake_skel_path = "var/lib/layercake/default_layerconfig.skel"
-	layercake_export_html_path = "var/lib/layercake/export/index.html"
+	layercake_layers_path = layercake_path + "/layers"
+	layercake_export_path = layercake_path + "/export"
+	layercake_skel_path = layercake_path + "/default_layerconfig.skel"
+	layercake_export_html_path = layercake_path + "/export/index.html"
 )
 
 func checkErrorByMessage(t *testing.T, err error, msg, phase string) {
@@ -672,16 +673,14 @@ func TestManage(t *testing.T) {
 	if !t.Run("read_layerfile", func (t *testing.T) {
 		typicalConfigMounts := []NeededMountType{
 			{Mount: "/dev", Source: "/dev", Fstype: "rbind"},
-			{Mount: "/proc", Source: "proc", Fstype: "proc"},
+			{Mount: "/proc", Source: "/proc", Fstype: "proc"},
 			{Mount: "/sys", Source: "/sys", Fstype: "rbind"},
-			{Mount: "/var/db/repos/gentoo", Source: "/var/db/repos/gentoo",
-				Fstype: "rbind"},
+			{Mount: "/var/db/repos", Source: "/var/db/repos", Fstype: "rbind"},
 			{Mount: "/var/cache/distfiles", Source: "/var/cache/distfiles",
 				Fstype: "rbind"},
+			{Mount: "/var/cache/binpkgs", Source: "$$base/packages", Fstype: "rbind"},
 		}
-		typicalConfigExports := []NeededMountType{
-			{Mount: "packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
-		}
+		typicalConfigExports := []NeededMountType{}
 
 
 		testName := "skeleton layout"
@@ -703,14 +702,45 @@ func TestManage(t *testing.T) {
 		td.checkIfPathNotFoundError(t, err, "open", layerfileName, testName)
 
 
+		// Tests suppport for explicit export of a non-bind-mounted binpkg directory
+		testName = "reduced layout, default config"
+		reducedConfigMounts := []NeededMountType{
+			{Mount: "/dev", Source: "/dev", Fstype: "rbind"},
+			{Mount: "/proc", Source: "/proc", Fstype: "proc"},
+			{Mount: "/sys", Source: "/sys", Fstype: "rbind"},
+			{Mount: "/var/db/repos", Source: "/var/db/repos", Fstype: "rbind"},
+			{Mount: "/var/cache/distfiles", Source: "/var/cache/distfiles",
+				Fstype: "rbind"},
+		}
+		reducedConfigExports := []NeededMountType{
+			{Mount: "packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
+		}
+		td.WriteFile(layerfileName,
+			`import rbind /dev /dev
+			import proc /proc /proc
+			import rbind /sys /sys
+			import rbind /var/db/repos /var/db/repos
+			import rbind /var/cache/distfiles /var/cache/distfiles
+			export symlink /var/cache/binpkgs packages`)
+		li, err = ReadLayerFile(layerfilePath, true)
+		if err != nil {
+			t.Fatalf("%s: got %s", testName, err)
+		}
+		checkSameLayerinfo(t, Layerinfo{
+			ConfigMounts: reducedConfigMounts,
+			ConfigExports: reducedConfigExports,
+			Mounts: emptyFsMounts,
+		}, li, testName)
+
+
 		testName = "augmented layout"
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs packages
+			import rbind $$base/packages /var/cache/binpkgs
 			export symlink / build`)
 		augmentedConfigExports := append(typicalConfigExports,
 			NeededMountType{Mount: "build", Source: "/", Fstype: "symlink"})
@@ -728,11 +758,11 @@ func TestManage(t *testing.T) {
 		testName = "paths with extraneous slashes"
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
-			import proc proc /proc/
+			import proc /proc /proc/
 			import rbind /sys /sys
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo/
+			import rbind /var/db/repos/ /var/db/repos/
 			import rbind /var/cache//distfiles/ /var/cache/distfiles
-			export symlink /var/cache/binpkgs/ packages`)
+			import rbind $$base/packages /var/cache/binpkgs/`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		if err != nil {
 			t.Fatalf("%s: got %s", testName, err)
@@ -749,11 +779,11 @@ func TestManage(t *testing.T) {
 			`# Comment
 			base basic
 			import rbind /dev /dev
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs packages`)
+			import rbind $$base/packages /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		if err != nil {
 			t.Fatalf("%s: got %s", testName, err)
@@ -770,11 +800,11 @@ func TestManage(t *testing.T) {
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
 			input rbind /here /there
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs packages`)
+			import rbind $$base/packages /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "Unknown layerconf keyword 'input' in " +
 			layerfilePath + " line 2", testName)
@@ -784,11 +814,11 @@ func TestManage(t *testing.T) {
 		td.WriteFile(layerfileName,
 			`base
 			import rbind /dev /dev
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs packages`)
+			import rbind $$base/packages /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "No base specified in " +
 			layerfilePath + " line 1", testName)
@@ -798,11 +828,11 @@ func TestManage(t *testing.T) {
 		td.WriteFile(layerfileName,
 			`base b.dir
 			import rbind /dev /dev
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs packages`)
+			import rbind $$base/packages /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, true)  // validity checked at later stage
 		checkErrorByMessage(t, err, "", "invalid layer name")
 		checkSameLayerinfo(t, Layerinfo{
@@ -816,11 +846,11 @@ func TestManage(t *testing.T) {
 		testName = "2-argument import"
 		td.WriteFile(layerfileName,
 			`import rbind /dev
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs packages`)
+			import rbind $$base/packages /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "Incomplete import specification in " + layerfilePath +
 			" line 1", testName)
@@ -829,14 +859,15 @@ func TestManage(t *testing.T) {
 		testName = "2-argument export"
 		td.WriteFile(layerfileName,
 			`import rbind /dev /dev
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
+			import rbind $$base/packages /var/cache/binpkgs
 			export symlink /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "Incomplete export specification in " +
-			layerfilePath + " line 6", testName)
+			layerfilePath + " line 7", testName)
 
 
 		testName = "2-argument export; soft error"
@@ -846,7 +877,7 @@ func TestManage(t *testing.T) {
 			ConfigMounts: typicalConfigMounts,
 			ConfigExports: typicalConfigExports[:0],
 			Messages: []string{"Incomplete export specification in " +
-				layerfilePath + " line 6"},
+				layerfilePath + " line 7"},
 			Mounts: emptyFsMounts,
 			State: 1,
 		}, li, testName)
@@ -856,11 +887,12 @@ func TestManage(t *testing.T) {
 		td.WriteFile(layerfileName,
 			`base
 			import rbind /dev /dev
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs`)
+			export symlink /var/cache/binpkgs
+			import rbind $$base/packages /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, false)
 		checkErrorByMessage(t, err, "", testName)
 		checkSameLayerinfo(t, Layerinfo{
@@ -880,12 +912,12 @@ func TestManage(t *testing.T) {
 			`# Comment
 			base fundamento
 			import rbind /dev /dev
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
 			base fundamento extra items ignored
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs packages`)
+			import rbind $$base/packages /var/cache/binpkgs`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "", testName)
 		checkSameLayerinfo(t, Layerinfo{
@@ -901,10 +933,10 @@ func TestManage(t *testing.T) {
 			`# Comment
 			base fundament
 			import rbind /dev /dev
-			import proc proc /proc
+			import proc /proc /proc
 			import rbind /sys /sys
 			base fundamento
-			import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
 			export symlink /var/cache/binpkgs packages`)
 		li, err = ReadLayerFile(layerfilePath, true)
@@ -918,16 +950,14 @@ func TestManage(t *testing.T) {
 	if !t.Run("write_layerfile", func (t *testing.T) {
 		typicalConfigMounts := []NeededMountType{
 			{Mount: "/dev", Source: "/dev", Fstype: "rbind"},
-			{Mount: "/proc", Source: "proc", Fstype: "proc"},
+			{Mount: "/proc", Source: "/proc", Fstype: "proc"},
 			{Mount: "/sys", Source: "/sys", Fstype: "rbind"},
-			{Mount: "/var/db/repos/gentoo", Source: "/var/db/repos/gentoo",
-				Fstype: "rbind"},
+			{Mount: "/var/db/repos", Source: "/var/db/repos", Fstype: "rbind"},
 			{Mount: "/var/cache/distfiles", Source: "/var/cache/distfiles",
 				Fstype: "rbind"},
+			{Mount: "/var/cache/binpkgs", Source: "$$base/packages", Fstype: "rbind"},
 		}
-		typicalConfigExports := []NeededMountType{
-			{Mount: "packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
-		}
+		typicalConfigExports := []NeededMountType{}
 
 
 		testName := "basic file"
@@ -941,13 +971,13 @@ func TestManage(t *testing.T) {
 		err := WriteLayerfile(layerfilePath, &li)
 		td.checkExpectedFileContents(t, err, layerfileName,
 `import rbind /dev /dev
-import proc proc /proc
+import proc /proc /proc
 import rbind /sys /sys
-import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+import rbind /var/db/repos /var/db/repos
 import rbind /var/cache/distfiles /var/cache/distfiles
-
-export symlink /var/cache/binpkgs packages
+import rbind $$base/packages /var/cache/binpkgs
 `, testName)
+
 
 		testName = "extra import"
 		li.ConfigMounts = append(typicalConfigMounts, NeededMountType{
@@ -955,11 +985,39 @@ export symlink /var/cache/binpkgs packages
 		err = WriteLayerfile(layerfilePath, &li)
 		td.checkExpectedFileContents(t, err, layerfileName,
 `import rbind /dev /dev
-import proc proc /proc
+import proc /proc /proc
 import rbind /sys /sys
-import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+import rbind /var/db/repos /var/db/repos
 import rbind /var/cache/distfiles /var/cache/distfiles
+import rbind $$base/packages /var/cache/binpkgs
 import rbind /root/common /mnt/common
+`, testName)
+
+
+		testName = "no binpkgs mount"
+		reducedConfigMounts := []NeededMountType{
+			{Mount: "/dev", Source: "/dev", Fstype: "rbind"},
+			{Mount: "/proc", Source: "/proc", Fstype: "proc"},
+			{Mount: "/sys", Source: "/sys", Fstype: "rbind"},
+			{Mount: "/var/db/repos", Source: "/var/db/repos", Fstype: "rbind"},
+			{Mount: "/var/cache/distfiles", Source: "/var/cache/distfiles",
+				Fstype: "rbind"},
+		}
+		reducedConfigExports := []NeededMountType{
+			{Mount: "packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
+		}
+		li = Layerinfo{
+			Name: "test",
+			ConfigMounts: reducedConfigMounts,
+			ConfigExports: reducedConfigExports,
+			Mounts: emptyFsMounts}
+		err = WriteLayerfile(layerfilePath, &li)
+		td.checkExpectedFileContents(t, err, layerfileName,
+`import rbind /dev /dev
+import proc /proc /proc
+import rbind /sys /sys
+import rbind /var/db/repos /var/db/repos
+import rbind /var/cache/distfiles /var/cache/distfiles
 
 export symlink /var/cache/binpkgs packages
 `, testName)
@@ -971,17 +1029,27 @@ export symlink /var/cache/binpkgs packages
 	if !t.Run("add_layer", func (t *testing.T) {
 		basic_layerdef := fns.Template(
 `import rbind /dev /dev
-import proc proc /proc
+import proc /proc /proc
 import rbind /sys /sys
-import rbind {tmpdir}/var/db/repos/gentoo /var/db/repos/gentoo
+import rbind {tmpdir}/var/db/repos /var/db/repos
+import rbind {tmpdir}/var/cache/distfiles /var/cache/distfiles
+import rbind $$base/packages /var/cache/binpkgs
+`, map[string]string{"tmpdir": td.rootdir})
+
+		reduced_layerdef := fns.Template(
+`import rbind /dev /dev
+import proc /proc /proc
+import rbind /sys /sys
+import rbind {tmpdir}/var/db/repos /var/db/repos
 import rbind {tmpdir}/var/cache/distfiles /var/cache/distfiles
 
 export symlink /var/cache/binpkgs packages
 `, map[string]string{"tmpdir": td.rootdir})
+_ = reduced_layerdef
 
 		alt_layerdef := fns.Template(
 `import rbind /dev /dev
-import proc proc /proc
+import proc /proc /proc
 import rbind /sys /sys
 import rbind {tmpdir}/var/db/repos/gentoo /usr/portage
 import rbind {tmpdir}/var/cache/distfiles /var/cache/distfiles
@@ -998,8 +1066,9 @@ export symlink /var/cache/binpkgs packages
 
 		td.WriteFile("/var/lib/layercake/default_layerconfig.skel", basic_layerdef)
 
+
 		testName := "add base0"
-		layers := getLayers(t, cfg, opts, inuse, "add base0")
+		layers := getLayers(t, cfg, opts, inuse, testName)
 		err = layers.AddLayer("base0", "", "")
 		if err != nil {
 			t.Fatalf("%s: %s", testName, err)
@@ -1021,6 +1090,33 @@ export symlink /var/cache/binpkgs packages
 			t.Fatalf("%s: %s", testName, err)
 		}
 		td.want.RemoveAll("/var/lib/layercake/layers/base0")
+		td.CheckAgainstWantedTree(t, testName)
+		checkLayerDescriptions(t, layers, []wantedLayerData{}, testName)
+
+
+		testName = "add baseonly"
+		layers = getLayers(t, cfg, opts, inuse, testName)
+		err = layers.AddLayer("baseonly", "", "")
+		if err != nil {
+			t.Fatalf("%s: %s", testName, err)
+		}
+		td.want.MkdirAll("/var/lib/layercake/layers/baseonly/build")
+		td.want.WriteFile("/var/lib/layercake/layers/baseonly/layerconfig", basic_layerdef)
+		td.want.MkdirAll("/var/lib/layercake/layers/baseonly/build/root")
+		td.want.WriteFile("/var/lib/layercake/layers/baseonly/build/root/.bashrc",
+			defaults.BaseLayerRootBashrc)
+		td.CheckAgainstWantedTree(t, "after adding baseonly")
+		layers = getLayers(t, cfg, opts, inuse, testName)
+		checkLayerDescriptions(t, layers, []wantedLayerData{
+			{"baseonly", "", false, false, false, []string{"not yet populated"}},
+		}, testName)
+
+		testName = "remove just-added baseonly"
+		err = layers.RemoveLayer("baseonly", false)
+		if err != nil {
+			t.Fatalf("%s: %s", testName, err)
+		}
+		td.want.RemoveAll("/var/lib/layercake/layers/baseonly")
 		td.CheckAgainstWantedTree(t, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{}, testName)
 
@@ -1063,7 +1159,7 @@ export symlink /var/cache/binpkgs packages
 		}, testName)
 
 
-		testName = "add derived 1"
+		testName = "add derived1"
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		err = layers.AddLayer("derived1", "base1", "")
 		if err != nil {
@@ -1134,7 +1230,7 @@ export symlink /var/cache/binpkgs packages
 			{"base0", "", false, false, false, []string{"build directories set up",
 				"missing mountpoint: /dev", "missing mountpoint: /proc",
 				"missing mountpoint: /sys",
-				"missing mountpoint: /var/db/repos/gentoo",
+				"missing mountpoint: /var/db/repos",
 				"missing mountpoint: /var/cache/distfiles",
 				"missing mountpoint: /var/cache/binpkgs"}},
 			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
@@ -1151,7 +1247,7 @@ export symlink /var/cache/binpkgs packages
 		layers = getLayers(t, cfg, opts, inuse, "added derived0")
 		checkLayerDescriptions(t, layers, []wantedLayerData{
 			{"base0", "", false, false, false, []string{"build directories set up",
-				"missing mountpoint: /var/db/repos/gentoo",
+				"missing mountpoint: /var/db/repos",
 				"missing mountpoint: /var/cache/distfiles",
 				"missing mountpoint: /var/cache/binpkgs"}},
 			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
@@ -1169,7 +1265,7 @@ export symlink /var/cache/binpkgs packages
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
 			{"base0", "", false, false, false, []string{"build directories set up",
-				"missing host directory: " + td.Path("/var/db/repos/gentoo"),
+				"missing host directory: " + td.Path("/var/db/repos"),
 				"missing host directory: " + td.Path("/var/cache/distfiles")}},
 			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
 			{"base1", "", false, false, false, []string{"not yet populated"}},
@@ -1224,7 +1320,7 @@ export symlink /var/cache/binpkgs packages
 
 
 		testName := "mount base0"
-		layers := getLayers(t, cfg, opts, inuse_all_idle, "mount base0")
+		layers := getLayers(t, cfg, opts, inuse_all_idle, testName)
 		err := layers.Mount("base0")
 		if err != nil {
 			t.Fatalf("%s: %s", testName, err)
@@ -1232,7 +1328,7 @@ export symlink /var/cache/binpkgs packages
 		checkLayerDescriptions(t, layers, []wantedLayerData{
 			{"base0", "", false, false, false, []string{"mounted and ready",
 				"Current mounts:",
-				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, false, false, []string{"mountable"}},
 			{"base1", "", false, false, false, []string{"not yet populated"}},
 			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
@@ -1246,16 +1342,16 @@ export symlink /var/cache/binpkgs packages
 			t.Fatalf("%s: %s", testName, err)
 		}
 		td.Mkdirs("/var/lib/layercake/layers/derived0/build", "bin dev etc lib opt proc " +
-			"root sbin sys usr /var/db/repos/gentoo /var/cach/distfiles " +
+			"root sbin sys usr /var/db/repos /var/cach/distfiles " +
 			"var/cache/binpkgs var/cache/distfiles")
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
 			{"base0", "", false, true, false, []string{"mounted and ready",
 				"Current mounts:",
-				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, false, false, []string{"mounted and ready",
 				"Current mounts:",
-				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo",
+				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
 			{"base1", "", false, false, false, []string{"not yet populated"}},
 			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
@@ -1285,10 +1381,10 @@ export symlink /var/cache/binpkgs packages
 		checkLayerDescriptions(t, layers, []wantedLayerData{
 			{"base0", "", false, true, false, []string{"mounted and ready",
 				"Current mounts:",
-				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, false, false, []string{"mounted and ready",
 				"Current mounts:",
-				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo",
+				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
 			{"derived1", "derived0", false, false, false, []string{"mountable"}},
 			{"base1", "", false, false, false, []string{"not yet populated"}},
@@ -1308,10 +1404,10 @@ export symlink /var/cache/binpkgs packages
 		checkLayerDescriptions(t, layers, []wantedLayerData{
 			{"base0", "", false, true, false, []string{"mounted and ready",
 				"Current mounts:",
-				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, true, false, []string{"mounted and ready",
 				"Current mounts:",
-				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo",
+				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
 			{"derived1", "derived0", false, false, false, []string{"mounted and ready",
 				"Current mounts:",
@@ -1364,10 +1460,10 @@ export symlink /var/cache/binpkgs packages
 		checkLayerDescriptions(t, layers, []wantedLayerData{
 			{"base0", "", false, true, false, []string{"mounted and ready",
 				"Current mounts:",
-				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo"}},
+				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, true, false, []string{"mounted and ready",
 				"Current mounts:",
-				"  required: /dev, /proc, /sys, /var/cache/distfiles, /var/db/repos/gentoo",
+				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
 			{"derived1", "derived0", false, false, false, []string{"mounted and ready",
 				"Current mounts:",

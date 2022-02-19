@@ -4,9 +4,9 @@ package defaults
 const DefaultCommand = "status"
 
 const BasePath = "/var/lib/layercake"
-const MainConfigFile = "config"
 const Layerdirs = "layers"
 const Builddir = "build"
+const Pkgdir = "packages"
 const Workdir = "overlayfs/workdir"
 const Upperdir = "overlayfs/upperdir"
 const Generateddir = "generated"
@@ -21,12 +21,11 @@ const SkeletonLayerconfigFile = "default_layerconfig.skel"
 const SkeletonLayerconfigFileExt = ".skel"
 const SkeletonLayerconfig =
 `import rbind /dev /dev
-import proc proc /proc
+import proc /proc /proc
 import rbind /sys /sys
-import rbind /var/db/repos/gentoo /var/db/repos/gentoo
+import rbind /var/db/repos /var/db/repos
 import rbind /var/cache/distfiles /var/cache/distfiles
-
-export symlink /var/cache/binpkgs packages`
+import rbind $$base/{pkgdir} /var/cache/binpkgs`
 
 const ExportDirEntries = "packages:packages|builds:builds|generated:generated"
 

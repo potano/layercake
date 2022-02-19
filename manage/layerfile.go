@@ -20,10 +20,10 @@ func ReadLayerFile(filename string, harderror bool) (*Layerinfo, error) {
 	}
 
 	var line string
-	for cursor.ReadLine(&line) {
+	for cursor.ReadNonBlankNonCommentLine(&line) {
 		line = strings.TrimSpace(line)
 		fields := strings.Fields(line)
-		if len(fields) < 1 || line[0] == '#' || (len(line) > 1 && "//" == line[:2]) {
+		if len(fields) < 1 {
 			continue
 		}
 		switch fields[0] {

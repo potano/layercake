@@ -114,8 +114,8 @@ func (fl *FileList) Names() []string {
 			the entry to be created.  Recursively copies source-directory entries if
 			name is of a directory.  Names are relative to the current directory;
 			absolute paths specify paths relative to the process' root directory.
-			Prefix the path with $root to indicate paths relative to the root of the
-			source tree.
+			Prefix the path with $$stageroot to indicate paths relative to the root
+			of the source tree.
    dev    Device	Type and major/minor numbers of the device in the form tN:N where t is
 			either b (block) or c (character) and N is an integer.
    targ   Link target	Target of the symbolic link.  May be relative or absolute.  Absolute paths
@@ -154,7 +154,7 @@ func (fl *FileList) Names() []string {
    dir /dev
 
    # Directory in which contents are taken from a separate directory in the source tree
-   dir /etc/portage src=$root/home/user/portage uid=0:0
+   dir /etc/portage src=$$stageroot/home/user/portage uid=0:0
 
    # Device nodes
    node /dev/sda dev=b8:0 uid=6

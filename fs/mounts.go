@@ -85,7 +85,7 @@ func ProbeMounts() (Mounts, error) {
 	shadowing_fs_types := map[string]bool{}
 	shadowing_parents := map[string]bool{}
 
-	for _, tp := range strings.Split(defaults.ShadowingFsTypes, " ") {
+	for _, tp := range strings.Fields(defaults.ShadowingFsTypes) {
 		shadowing_fs_types[tp] = true
 	}
 

@@ -4,7 +4,7 @@ const Umask = 0022
 const StageFileGID = 0
 const StageFileUID = 0
 
-const TreeRootDirPrefix = "$root/"
+const TreeRootDirPrefixName = "stageroot"
 
 const MaxSymlinkChain = 5
 

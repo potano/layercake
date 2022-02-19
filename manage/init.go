@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"potano.layercake/fs"
+	"potano.layercake/fns"
 	"potano.layercake/config"
 	"potano.layercake/defaults"
 )
@@ -19,8 +20,11 @@ type baseFiles struct {
 
 func newBaseFiles(cfg *config.ConfigType) *baseFiles {
 	bf := &baseFiles{}
-	bf.addBaseFile(cfg.Basepath, defaults.SkeletonLayerconfigFile,
-		defaults.SkeletonLayerconfig, "default layer configuration", true)
+
+	skeleton := fns.Template(defaults.SkeletonLayerconfig,
+		map[string]string{"pkgdir": cfg.LayerBinPkgdir})
+	bf.addBaseFile(cfg.Basepath, defaults.SkeletonLayerconfigFile, skeleton,
+		"default layer configuration", true)
 	bf.addBaseFile(cfg.Exportdirs, defaults.ExportIndexHtmlName, defaults.ExportIndexHtml,
 		"export-directory file", false)
 	return bf

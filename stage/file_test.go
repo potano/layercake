@@ -83,6 +83,8 @@ var entrySet1 []entryEntry = []entryEntry {
 	entryEntry{entryType_dir, "/etc/xml", ""},
 	entryEntry{entryType_file, "/etc/xml/catalog", "<xml/>"},
 	entryEntry{entryType_file, "/etc/xml/docbook", "<xml/>"},
+	entryEntry{entryType_dir, "/usr/share/sddm/conf.d", ""},
+	entryEntry{entryType_file, "/usr/share/sddm/conf.d/default.conf", ""},
 }
 
 
@@ -183,10 +185,14 @@ func testSet1(t *testing.T, curEnv curEnvironment, td *Tmpdir, entries []entryEn
 		{mkli("file", "/etc/nogo"), nil,
 			"file " + td.Path("/etc/nogo") + " does not exist (source of /etc/nogo)"},
 		{mkli("file", "/etc/nogo").skipAbsent(), nil, ""},
+		{mkli("file", "/etc/sddm.conf").
+			src("$$stageroot/usr/share/sddm/conf.d/default.conf"),
+			mkli("file", "/etc/sddm.conf").
+			src(td.rootdir + "/usr/share/sddm/conf.d/default.conf").gu_env(curEnv), ""},
 	 } {
 		 fileList.entryMap = map[string]lineInfo{}
 		 desc := liName(tst.before.ltype) + " " + tst.before.name
-		 err := fileList.addSingleFile(*tst.before)
+		 err := fileList.addFiles(*tst.before)
 		 testResult, exists := fileList.entryMap[tst.before.name]
 		 if err != nil {
 			 if err.Error() != tst.errmsg {
