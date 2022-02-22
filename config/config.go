@@ -18,9 +18,12 @@ type ConfigType struct {
 	Layerdirs string
 	LayerBuildRoot string
 	LayerBinPkgdir string
+	LayerGeneratedir string
 	LayerOvfsWorkdir string
 	LayerOvfsUpperdir string
 	Exportdirs string
+	ExportBinPkgdir string
+	ExportGeneratedir string
 	LayerExportDirs map[string]string
 	ChrootExec string
 }
@@ -33,40 +36,59 @@ const (
 )
 
 
+const (
+	cfKey_none = iota
+	cfKey_basepath
+	cfKey_configfile
+	cfKey_layerdirs
+	cfKey_buildroot
+	cfKey_binpkgdir
+	cfKey_gendir
+	cfKey_workdir
+	cfKey_upperdir
+	cfKey_exportroot
+	cfKey_exportpkgdir
+	cfKey_exportgendir
+	cfKey_chrootexec
+)
+
+
 type cfsetup struct {
-	name string
+	key int
 	s_type int
-	relative_to string
+	relative_to int
 	default_value string
+	configKey string
 }
+
 
 
 var settingSetup = []cfsetup {
-	cfsetup{"basepath", ss_dir, "", defaults.BasePath},
-	cfsetup{"layerdirs", ss_dir, "basepath", defaults.Layerdirs},
-	cfsetup{"buildroot", ss_value, "", defaults.Builddir},
-	cfsetup{"binpkgdir", ss_value, "", defaults.Pkgdir},
-	cfsetup{"workdir", ss_value, "", defaults.Workdir},
-	cfsetup{"upperdir", ss_value, "", defaults.Upperdir},
-	cfsetup{"exportroot", ss_dir, "basepath", defaults.Exportdirs},
-	cfsetup{"chrootexec", ss_file, "", defaults.ChrootExec},
+	cfsetup{cfKey_basepath, ss_dir, 0, defaults.BasePath, "BASEPATH"},
+	cfsetup{cfKey_configfile, ss_file, 0, "", "CONFIGFILE"},
+	cfsetup{cfKey_layerdirs, ss_dir, cfKey_basepath, defaults.Layerdirs, "LAYERS"},
+	cfsetup{cfKey_buildroot, ss_value, 0, defaults.Builddir, "BUILDROOT"},
+	cfsetup{cfKey_binpkgdir, ss_value, 0, defaults.Pkgdir, "BINPKGS"},
+	cfsetup{cfKey_gendir, ss_value, 0, defaults.Generateddir, "GENERATED_FILES"},
+	cfsetup{cfKey_workdir, ss_value, 0, defaults.Workdir, "OVERFS_WORKDIR"},
+	cfsetup{cfKey_upperdir, ss_value, 0, defaults.Upperdir, "OVERFS_UPPERDIR"},
+	cfsetup{cfKey_exportroot, ss_dir, cfKey_basepath, defaults.Exportdirs, "EXPORTS"},
+	cfsetup{cfKey_exportpkgdir, ss_value, 0, defaults.Pkgdir, "EXPORT_BINPKGS"},
+	cfsetup{cfKey_exportgendir, ss_value, 0, defaults.Generateddir, "EXPORT_GENERATED_FILES"},
+	cfsetup{cfKey_chrootexec, ss_file, 0, defaults.ChrootExec, "CHROOT_EXEC"},
 }
 
 
-func defaultSettingSetup() map[string]string {
-	setup := map[string]string{}
+func defaultSettingSetup() map[int]string {
+	setup := map[int]string{}
 	for _, v := range settingSetup {
-		setup[v.name] = v.default_value
-	}
-	for _, pair := range strings.Split(defaults.ExportDirEntries, "|") {
-		slice := strings.Split(pair, ":")
-		setup["export/" + slice[0]] = slice[1]
+		setup[v.key] = v.default_value
 	}
 	return setup
 }
 
 
-func mergeSettingSetup(target map[string]string, source map[string]string) {
+func mergeSettingSetup(target map[int]string, source map[int]string) {
 	for key, value := range source {
 		if len(target[key]) == 0 {
 			target[key] = value
@@ -75,9 +97,9 @@ func mergeSettingSetup(target map[string]string, source map[string]string) {
 }
 
 
-func patchPaths(cfg map[string]string) error {
+func patchPaths(cfg map[int]string) error {
 	for _, setup := range settingSetup {
-		key := setup.name
+		key := setup.key
 		value := cfg[key]
 		if (setup.s_type != ss_dir && setup.s_type != ss_file) || len(value) < 1 {
 			continue
@@ -86,7 +108,8 @@ func patchPaths(cfg map[string]string) error {
 		if !path.IsAbs(value) {
 			relTo := cfg[setup.relative_to]
 			if len(relTo) < 1 || !path.IsAbs(relTo) {
-				return fmt.Errorf("No absolute path for setup element %s", key)
+				return fmt.Errorf("No absolute path for setup element %s",
+					setup.configKey)
 			}
 			value = path.Join(relTo, value)
 		}
@@ -97,12 +120,12 @@ func patchPaths(cfg map[string]string) error {
 
 
 func Load(configfile string, basepath string) (*ConfigType, error) {
-	setup := map[string]string{}
+	setup := map[int]string{}
 
 	if len(basepath) < 1 {
 		basepath = os.Getenv("LAYERROOT")
 	}
-	setup["basepath"] = basepath
+	setup[cfKey_basepath] = basepath
 
 	if len(configfile) < 1 {
 		var choices []string
@@ -138,7 +161,7 @@ func Load(configfile string, basepath string) (*ConfigType, error) {
 			return nil, err
 		}
 		mergeSettingSetup(setup, fileSetup)
-		configfile = fileSetup["configfile"]
+		configfile = fileSetup[cfKey_configfile]
 	}
 
 	if err := patchPaths(setup); err != nil {
@@ -151,30 +174,25 @@ func Load(configfile string, basepath string) (*ConfigType, error) {
 		return nil, err
 	}
 
-	exportEntries := map[string]string{}
-	for key, value := range setup {
-		if key[0:7] == "export/" {
-			exportEntries[key[7:]] = value
-		}
-	}
-
 	cfg := &ConfigType{
-		Basepath: setup["basepath"],
-		Layerdirs: setup["layerdirs"],
-		LayerBuildRoot: setup["buildroot"],
-		LayerBinPkgdir: setup["binpkgdir"],
-		LayerOvfsWorkdir: setup["workdir"],
-		LayerOvfsUpperdir: setup["upperdir"],
-		Exportdirs: setup["exportroot"],
-		LayerExportDirs: exportEntries,
-		ChrootExec: setup["chrootexec"],
+		Basepath: setup[cfKey_basepath],
+		Layerdirs: setup[cfKey_layerdirs],
+		LayerBuildRoot: setup[cfKey_buildroot],
+		LayerBinPkgdir: setup[cfKey_binpkgdir],
+		LayerGeneratedir: setup[cfKey_gendir],
+		LayerOvfsWorkdir: setup[cfKey_workdir],
+		LayerOvfsUpperdir: setup[cfKey_upperdir],
+		Exportdirs: setup[cfKey_exportroot],
+		ExportBinPkgdir: setup[cfKey_exportpkgdir],
+		ExportGeneratedir: setup[cfKey_exportgendir],
+		ChrootExec: setup[cfKey_chrootexec],
 	}
 	return cfg, nil
 }
 
 
-func readConfigFile(filename string) (map[string]string, error) {
-	cfg := map[string]string{}
+func readConfigFile(filename string) (map[int]string, error) {
+	cfg := map[int]string{}
 	cursor, err := fs.NewTextInputFileCursor(filename)
 	if nil != err {
 		return cfg, err
@@ -191,30 +209,18 @@ func readConfigFile(filename string) (map[string]string, error) {
 		if len(val) < 1 {
 			continue
 		}
-		var key string
-		switch strings.ToUpper(strings.TrimSpace(parts[0])) {
-		case "BASEPATH":
-			key = "basepath"
-		case "CONFIGFILE", "CONFIG_FILE":
-			key = "configfile"
-		case "LAYERS":
-			key = "layerdirs"
-		case "BUILDROOT":
-			key = "buildroot"
-		case "BINPKGDIR":
-			key = "binpkgdir"
-		case "OVERFS_WORKDIR", "WORKDIR":
-			key = "workdir"
-		case "OVERFS_UPPERDIR", "UPPERDIR":
-			key = "upperdir"
-		case "EXPORT_DIR", "EXPORT_ROOT", "EXPORTDIR", "EXPORTROOT":
-			key = "exportroot"
-		case "CHROOTEXEC", "CHROOT_EXEC":
-			key = "chrootexec"
-		default:
+		uckey := strings.ToUpper(strings.TrimSpace(parts[0]))
+		found := false
+		for _, item := range settingSetup {
+			if uckey == item.configKey {
+				cfg[item.key] = val
+				found = true
+				break
+			}
+		}
+		if !found {
 			return cfg, fmt.Errorf("Unrecognized setting '%s'", parts[0])
 		}
-		cfg[key] = val
 	}
 	err = cursor.Err()
 	if nil != err {

@@ -450,11 +450,6 @@ func (ld *Layerdefs) Makedirs(name string) error {
 		}
 		ld.findLayerstate(layer)
 	}
-
-	err = ld.makeExportSymlinks(layer)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -481,6 +476,10 @@ func (ld *Layerdefs) Mount(name string) error {
 	}
 	for _, layer := range ancestors {
 		err = ld.mountOne(layer)
+		if err != nil {
+			return err
+		}
+		err = ld.makeExportSymlinks(layer)
 		if err != nil {
 			return err
 		}

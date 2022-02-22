@@ -27,8 +27,6 @@ import rbind /var/db/repos /var/db/repos
 import rbind /var/cache/distfiles /var/cache/distfiles
 import rbind $$base/{pkgdir} /var/cache/binpkgs`
 
-const ExportDirEntries = "packages:packages|builds:builds|generated:generated"
-
 const MinimalBuildDirs = "bin etc lib opt root sbin usr"
 
 const RemovedLayerSuffix = "~removed"

@@ -312,24 +312,8 @@ func (td *Tmpdir) CheckAgainstWantedTree(t *testing.T, phase string) {
 	}
 }
 
-func (t *Tmpdir) MakeConfigTypeObj() *config.ConfigType {
-	basePath := t.Path(defaults.BasePath)
-	exportMap := map[string]string{}
-	for _, pair := range strings.Split(defaults.ExportDirEntries, "|") {
-		slice := strings.Split(pair, ":")
-		exportMap[slice[0]] = slice[1]
-	}
-	return &config.ConfigType{
-		Basepath: basePath,
-		Layerdirs: path.Join(basePath, defaults.Layerdirs),
-		LayerBinPkgdir: defaults.Pkgdir,
-		LayerBuildRoot: defaults.Builddir,
-		LayerOvfsWorkdir: defaults.Workdir,
-		LayerOvfsUpperdir: defaults.Upperdir,
-		Exportdirs: path.Join(basePath, defaults.Exportdirs),
-		LayerExportDirs: exportMap,
-		ChrootExec: defaults.ChrootExec,
-	}
+func (t *Tmpdir) MakeConfigTypeObj() (*config.ConfigType, error) {
+	return config.Load("/dev/null", t.Path("/var/lib/layercake"))
 }
 
 
@@ -629,7 +613,10 @@ func TestManage(t *testing.T) {
 	savedSyscallMount := fs.SyscallMount
 	savedSyscallUnmount := fs.SyscallUnmount
 
-	cfg := td.MakeConfigTypeObj()
+	cfg, err := td.MakeConfigTypeObj()
+	if err != nil {
+		t.Fatalf("%s loading default configuration", err)
+	}
 
 	if !t.Run("init", func (t *testing.T) {
 		mia := CheckBaseSetUp(cfg)
@@ -696,6 +683,8 @@ func TestManage(t *testing.T) {
 
 		layerfileName := "test_layerfile"
 		layerfilePath := td.Path(layerfileName)
+		reducedLayerfileName := "test_reduced_layerfile"
+		reducedLayerfilePath := td.Path(reducedLayerfileName)
 
 		testName = "missing layerfile"
 		li, err = ReadLayerFile(layerfilePath, false)
@@ -713,16 +702,16 @@ func TestManage(t *testing.T) {
 				Fstype: "rbind"},
 		}
 		reducedConfigExports := []NeededMountType{
-			{Mount: "packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
+			{Mount: "$$base/packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
 		}
-		td.WriteFile(layerfileName,
+		td.WriteFile(reducedLayerfileName,
 			`import rbind /dev /dev
 			import proc /proc /proc
 			import rbind /sys /sys
 			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs packages`)
-		li, err = ReadLayerFile(layerfilePath, true)
+			export symlink /var/cache/binpkgs $$base/packages`)
+		li, err = ReadLayerFile(reducedLayerfilePath, true)
 		if err != nil {
 			t.Fatalf("%s: got %s", testName, err)
 		}
@@ -1043,7 +1032,7 @@ import rbind /sys /sys
 import rbind {tmpdir}/var/db/repos /var/db/repos
 import rbind {tmpdir}/var/cache/distfiles /var/cache/distfiles
 
-export symlink /var/cache/binpkgs packages
+export symlink /var/cache/binpkgs $$self/packages
 `, map[string]string{"tmpdir": td.rootdir})
 _ = reduced_layerdef
 
@@ -1054,7 +1043,7 @@ import rbind /sys /sys
 import rbind {tmpdir}/var/db/repos/gentoo /usr/portage
 import rbind {tmpdir}/var/cache/distfiles /var/cache/distfiles
 
-export symlink /var/cache/binpkgs packages
+export symlink /var/cache/binpkgs $$self/packages
 `, map[string]string{"tmpdir": td.rootdir})
 
 		err := td.UpdateWantFiles()

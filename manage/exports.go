@@ -3,10 +3,8 @@ package manage
 import (
 	"fmt"
 	"path"
-	"strings"
 
 	"potano.layercake/fs"
-	"potano.layercake/defaults"
 )
 
 
@@ -17,32 +15,28 @@ type expandedNeededMountType struct {
 
 
 func (ld *Layerdefs) expandConfigExports(layer *Layerinfo) ([]expandedNeededMountType, error) {
-	out := make([]expandedNeededMountType, len(layer.ConfigExports))
-	unknowns := make([]string, 0, len(layer.ConfigExports))
-	for i, mount := range layer.ConfigExports {
-		source := mount.Source
-		target := mount.Mount
-		if !path.IsAbs(target) {
-			dirname, ok := ld.cfg.LayerExportDirs[target]
-			if !ok {
-				unknowns = append(unknowns, target)
-			} else {
-				target = path.Join(ld.cfg.Exportdirs, dirname, layer.Name)
-			}
+	callback := func (symbol, tail string) (string, error) {
+		switch symbol{
+		case "base":
+			return ld.findLayerBase(layer).LayerPath, nil
+		case "self":
+			return layer.LayerPath, nil
 		}
-		source = path.Join(layer.LayerPath, ld.cfg.LayerBuildRoot, source)
-		mount.Source = source
-		mount.Mount = target
+		return "", fmt.Errorf("unknown key %s", symbol)
+	}
+	out := make([]expandedNeededMountType, len(layer.ConfigExports))
+	for i, mount := range layer.ConfigExports {
+		source := path.Join(layer.LayerPath, ld.cfg.LayerBuildRoot, mount.Source)
+		target, err := fs.AdjustPrefixedPath(mount.Mount, "", callback)
+		if err != nil {
+			return nil, err
+		}
 		out[i] = expandedNeededMountType{
 			Mount: target,
 			Source: source,
 			Fstype: mount.Fstype,
 			UnexpandedMount: mount.Mount,
 			UnexpandedSource: mount.Source}
-	}
-	if len(unknowns) > 0 {
-		return out, fmt.Errorf("unknown export-directory key(s) %s",
-			strings.Join(unknowns, ", "))
 	}
 	return out, nil
 }
@@ -91,6 +85,18 @@ func makeSymlinkInDirectory(source, target string) error {
 }
 
 
+func (ld *Layerdefs) automatedLayerExportPaths(layer *Layerinfo) []NeededMountType {
+	binpkgMount := path.Join(ld.cfg.Exportdirs, ld.cfg.ExportBinPkgdir, layer.Name)
+	gendirMount := path.Join(ld.cfg.Exportdirs, ld.cfg.ExportGeneratedir, layer.Name)
+	binpkgSource := path.Join(layer.LayerPath, ld.cfg.LayerBinPkgdir)
+	gendirSource := path.Join(layer.LayerPath, ld.cfg.LayerGeneratedir)
+	return []NeededMountType{
+		{binpkgMount, binpkgSource, "symlink"},
+		{gendirMount, gendirSource, "symlink"},
+	}
+}
+
+
 func (ld *Layerdefs) makeExportSymlinks(layer *Layerinfo) error {
 	exports, err := ld.expandConfigExports(layer)
 	if err != nil {
@@ -102,29 +108,27 @@ func (ld *Layerdefs) makeExportSymlinks(layer *Layerinfo) error {
 			return err
 		}
 	}
-	source := path.Join(layer.LayerPath, defaults.Generateddir)
-	if fs.Exists(source) {
-		err = makeSymlinkInDirectory(source, path.Join(ld.cfg.Exportdirs,
-			ld.cfg.LayerExportDirs[defaults.Generateddir], layer.Name))
-		if err != nil {
-			return err
+	for _, item := range ld.automatedLayerExportPaths(layer) {
+		if fs.Exists(item.Source) {
+			err = makeSymlinkInDirectory(item.Source, item.Mount)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
 
-func (ld *Layerdefs) removeLayerExportLinks(li *Layerinfo) error {
-	exportdir := ld.cfg.Exportdirs
-	for _, dirbase := range ld.cfg.LayerExportDirs {
-		linkname := path.Join(exportdir, dirbase, li.Name)
-		if !fs.Exists(linkname) {
+func (ld *Layerdefs) removeLayerExportLinks(layer *Layerinfo) error {
+	for _, item := range ld.automatedLayerExportPaths(layer) {
+		if !fs.Exists(item.Mount) {
 			continue
 		}
-		if !fs.IsSymlink(linkname) {
-			return fmt.Errorf("Export %s is not a symlink; cannot remove", linkname)
+		if !fs.IsSymlink(item.Mount) {
+			return fmt.Errorf("Export %s is not a symlink; cannot remove", item.Mount)
 		}
-		fs.Remove(linkname)
+		fs.Remove(item.Mount)
 	}
 	return nil
 }
