@@ -1,5 +1,5 @@
 = Layercake
-Manage multiple build roots in a Gentoo binary-build-host system
+Layercake is a manager for Gentoo binary-package build hosts.
 
 Gentoo's https://wiki.gentoo.org/wiki/Binary_package_guide[Binary package guide] describes
 how to set up a host for building binary packages for deployment to one or more target
@@ -8,7 +8,7 @@ benefit is that the target machines remain fully usable during the build process
 
 A major limitation of the methods presented in the Binary-package guide is that the target
 machines must have the same CHOST, CFLAGS, CXXFLAGS, and USE-flag settings as the host
-which builds the packages.  If the processors on the machines are of different
+which builds the packages.  If the processors on the various machines are of different
 generations, the processor-specific USE flags must follow the lowest common denominator.
 
 Gentoo users are already familiar with using a _chroot_ in the process of setting up a
@@ -22,20 +22,21 @@ Layercake makes this easy to manage:
 
 - Target systems may be configured differently than the build host
 
-- Manages multiple build roots on a single build host
+- Build hosts may contain multiple build roots, each with its own USE-flag and other
+settings
 
-- Defaults to using the single system-wide Portage tree for all build roots; no need to
+- Sharing of a single system-wide Portage tree among all build roots; no need to
 sync individual trees
 
 - Supports similar system-wide sharing of other directories such as downloaded tarballs
-(_distfiles_ directory) and overlays
+(_distfiles_ directory)
 
 - Mounts/unmounts directories such as `/dev`, `/proc`, `/sys`, and the Portage tree
 
-- Maintains symlinks needed for a web server to access package directores
+- Maintains symlinks needed for a web server to access package directories
 
-- Allows the user to set up parent/child relationships among build roots in order to
-avoid time- and space-consuming duplicate package builds
+- Allows the user--via overlay mounts--to set up parent/child relationships among build
+roots in order to avoid time- and space-consuming duplicate package builds
 
 - Automatically performs any needed mounts, including _overlayfs_ mounts, when the user
 issues the command to chroot into a build root
@@ -56,6 +57,25 @@ _-march_ settings in all layers must be compatable with the host hardware.
 These steps assume the user has configured and initialized the Layercake installation in
 an operational Gentoo host environment.
 
+=== Presuppostions
+
+Layercake works the most easily when the host system is configured as the more recent
+revisions of the Gentoo Handbook advise:
+
+* Portage tree at `/var/db/repos/gentoo`
+* Overlays based at other directories under `/var/db/repos/`
+* Distribution tarballs at `/var/cache/distfiles`
+
+Further, we assume that all build roots and related files reside in a tree based at
+`/var/lib/layercake`.  We also assume that a web server is set up to serve files from
+the `/var/lib/layercake/exports` directory.  For the purposes of this discussion, we
+assume that the build host has the hostname _buildhost_ and that the web server serves
+this directory from port 1000.
+
+
+Layercake requires a link:doc/layercake_config.adoc[configuration file] if one or more
+of these conditions are not true.
+
 === Create, populate, and use a base layer
 
 In this example we use "base" as the name of the layer.  The use first issues these three
@@ -75,18 +95,7 @@ sure the FEATURES variable includes the _buildpkg_ feature.
 
 Layercake mounts the Portage tree and other user-defined mounts as needed.  Rather than
 download Portage tree, the user needs to ensure the directory exists and that Layercake
-is configured to use it.  For this example we assume the configuration is correct; see
-<<layerconfig,Layer configuration>> for more information.
-
-Recent Stage3 tarballs already contain empty `/var/cache/distfiles` and
-`/var/cache/binpkgs` directories but not `/var/db/repos/gentoo`.  What we need is
-
---------------------
-mkdir /var/db/repos/gentoo
---------------------
-
-In an similar way be sure to create other needed directories which Layercake may be
-configured to set up, such as overlay directories.
+is configured to use it.
 
 At this point the layer should be ready for chroot.  As in any Gentoo installation, it
 may be advantageous for the user to maintain one login with full access to the host
@@ -100,6 +109,10 @@ layercake chroot base
 This ensures that all the needed mounts are performed and even sets up the root prompt
 with an indication of the name of the current layer.  Now the user may go on with the
 build process as needed.
+
+Once the build is ready, a target machine having the same architecture and needing the same
+USE flags could read from this host by setting the make.conf variable PORTAGE_BINHOST to
+`"http://buildhost:1000/packages/base"`
 
 === Create and use a child (derived) layer
 
