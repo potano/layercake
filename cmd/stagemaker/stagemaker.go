@@ -43,7 +43,7 @@ Optional switches:
                      -novdb, and -staticdev options
   -skinny            Exclude build dependencies
   -novdb             Exclude VDB (installed-package info at /var/db/pkg)
-  -staticdev         Static /dev:  add static /dev entries
+  -emptydev          Empty /dev:  omit static /dev entries
   -files             List files instead of packages in listing
   -filesbypackage    List of files grouped by package
 
@@ -66,7 +66,7 @@ Usage:
 func main() {
 	var root, profile, listSet, outputPath, compressionInput, includeAtoms, atomsFile string
 	var fileListFile, recipeFile string
-	var generate, help, listFiles, listFilesByPackage, skinny, noVDB, staticDev bool
+	var generate, help, listFiles, listFilesByPackage, skinny, noVDB, emptyDev bool
 
 	flag.StringVar(&listSet, "list", "", "output list")
 	flag.BoolVar(&generate, "generate", false, "generate stage file")
@@ -80,7 +80,7 @@ func main() {
 	flag.StringVar(&compressionInput, "compress", "", "compression method")
 	flag.BoolVar(&skinny, "skinny", false, "exclude build dependencies")
 	flag.BoolVar(&noVDB, "novdb", false, "exclude /var/db/pkg files (VDB)")
-	flag.BoolVar(&staticDev, "staticdev", false, "prepopulate /dev with device nodes")
+	flag.BoolVar(&emptyDev, "emptydev", false, "do not prepopulate /dev with device nodes")
 	flag.BoolVar(&listFiles, "files", false, "list files")
 	flag.BoolVar(&listFilesByPackage, "filesbypackage", false, "list files by package")
 	flag.BoolVar(&listFilesByPackage, "bypackage", false, "list files by package")
@@ -133,8 +133,8 @@ func main() {
 				skinny = true
 			case "novdb":
 				noVDB = true
-			case "staticdev":
-				staticDev = true
+			case "emptydev":
+				emptyDev = true
 			default:
 				cursor.LogError("unrecogized keyword " + key)
 			}
@@ -150,7 +150,7 @@ func main() {
 	}
 	data.includeBdepend = !skinny
 	data.includeVDB = !noVDB
-	data.includeStaticDev = staticDev
+	data.includeStaticDev = ! emptyDev
 
 	if len(atomsFile) > 0 {
 		atomFiles = append(atomFiles, atomsFile)

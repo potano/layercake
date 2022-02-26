@@ -66,7 +66,7 @@ dir /var/tmp
 const DevDirSetup =
 `node /dev/console dev=c5:1 mod=0600
 node /dev/core dev=c1:6 mod=0600
-symlink /dev/fd targ=/proc/self/fd
+symlink /dev/fd targ=../proc/self/fd
 node /dev/full dev=c1:7 mod=0666
 node /dev/hda dev=b3:0 gid=6 mod=0640
 dir /dev/input mod=0755
@@ -80,7 +80,7 @@ node /dev/input/uinput dev=c10:223 mod=0600
 node /dev/mem dev=c1:1 gid=9 mod=0640
 node /dev/null dev=c1:3 mod=0666
 node /dev/port dev=c1:4 gid=9 mod=0640
-node /dev/ptmx dev=c5:2 mod=0666
+node /dev/ptmx dev=c5:2 gid=0 mod=0666
 node /dev/random dev=c1:8 mod=0644
 node /dev/sda dev=b8:0 gid=6 mod=0640
 node /dev/sdb dev=b8:16 gid=6 mod=0640
@@ -89,8 +89,8 @@ node /dev/sdd dev=b8:48 gid=6 mod=0640
 symlink /dev/stderr targ=../proc/self/fd/2
 symlink /dev/stdin targ=../proc/self/fd/0
 symlink /dev/stdout targ=../proc/self/fd/1
-node /dev/tty dev=c5:0 mod=0666
-node /dev/tty0 dev=c4:0 gid=5 mod=0640
+node /dev/tty dev=c5:0 gid=0 mod=0666
+node /dev/tty0 dev=c4:0 gid=5 mod=0620
 node /dev/urandom dev=c1:9 mod=0644
 node /dev/zero dev=c1:5 mod=0666
 `
