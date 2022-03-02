@@ -46,6 +46,16 @@ func Mount(source, target, fstype, options string) error {
 		if nil != err {
 			return fmt.Errorf("Cannot mount %s: %s", target, err)
 		}
+
+		// Vinculae daemonis systematis frangere!
+		if source == "/dev" || source == "/sys" || source == "/run" {
+			flags = syscall.MS_SLAVE | syscall.MS_REC
+			err = SyscallMount("", target, "", flags, options)
+			if err != nil {
+				return fmt.Errorf("Cannot change propagation type of mount %s: %s",
+					target, err)
+			}
+		}
 	}
 	return nil
 }
