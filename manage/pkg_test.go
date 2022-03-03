@@ -702,7 +702,8 @@ func TestManage(t *testing.T) {
 				Fstype: "rbind"},
 		}
 		reducedConfigExports := []NeededMountType{
-			{Mount: "$$base/packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
+			{Mount: "$$package_export", Source: "/var/cache/binpkgs",
+				Fstype: "symlink"},
 		}
 		td.WriteFile(reducedLayerfileName,
 			`import rbind /dev /dev
@@ -710,7 +711,7 @@ func TestManage(t *testing.T) {
 			import rbind /sys /sys
 			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs $$base/packages`)
+			export symlink /var/cache/binpkgs $$package_export`)
 		li, err = ReadLayerFile(reducedLayerfilePath, true)
 		if err != nil {
 			t.Fatalf("%s: got %s", testName, err)
@@ -718,28 +719,6 @@ func TestManage(t *testing.T) {
 		checkSameLayerinfo(t, Layerinfo{
 			ConfigMounts: reducedConfigMounts,
 			ConfigExports: reducedConfigExports,
-			Mounts: emptyFsMounts,
-		}, li, testName)
-
-
-		testName = "augmented layout"
-		td.WriteFile(layerfileName,
-			`import rbind /dev /dev
-			import proc /proc /proc
-			import rbind /sys /sys
-			import rbind /var/db/repos /var/db/repos
-			import rbind /var/cache/distfiles /var/cache/distfiles
-			import rbind $$base/packages /var/cache/binpkgs
-			export symlink / build`)
-		augmentedConfigExports := append(typicalConfigExports,
-			NeededMountType{Mount: "build", Source: "/", Fstype: "symlink"})
-		li, err = ReadLayerFile(layerfilePath, true)
-		if err != nil {
-			t.Fatalf("%s: got %s", testName, err)
-		}
-		checkSameLayerinfo(t, Layerinfo{
-			ConfigMounts: typicalConfigMounts,
-			ConfigExports: augmentedConfigExports,
 			Mounts: emptyFsMounts,
 		}, li, testName)
 
@@ -927,7 +906,7 @@ func TestManage(t *testing.T) {
 			base fundamento
 			import rbind /var/db/repos /var/db/repos
 			import rbind /var/cache/distfiles /var/cache/distfiles
-			export symlink /var/cache/binpkgs packages`)
+			export symlink /var/cache/binpkgs $$package_exports`)
 		li, err = ReadLayerFile(layerfilePath, true)
 		checkErrorByMessage(t, err, "New conflicting setting of base property in " +
 			layerfilePath + " line 6", testName)
@@ -993,7 +972,8 @@ import rbind /root/common /mnt/common
 				Fstype: "rbind"},
 		}
 		reducedConfigExports := []NeededMountType{
-			{Mount: "packages", Source: "/var/cache/binpkgs", Fstype: "symlink"},
+			{Mount: "$$package_export", Source: "/var/cache/binpkgs",
+				Fstype: "symlink"},
 		}
 		li = Layerinfo{
 			Name: "test",
@@ -1008,7 +988,7 @@ import rbind /sys /sys
 import rbind /var/db/repos /var/db/repos
 import rbind /var/cache/distfiles /var/cache/distfiles
 
-export symlink /var/cache/binpkgs packages
+export symlink /var/cache/binpkgs $$package_export
 `, testName)
 	}) {
 		return
@@ -1032,7 +1012,7 @@ import rbind /sys /sys
 import rbind {tmpdir}/var/db/repos /var/db/repos
 import rbind {tmpdir}/var/cache/distfiles /var/cache/distfiles
 
-export symlink /var/cache/binpkgs $$self/packages
+export symlink /var/cache/binpkgs $$package_export
 `, map[string]string{"tmpdir": td.rootdir})
 _ = reduced_layerdef
 
@@ -1043,7 +1023,7 @@ import rbind /sys /sys
 import rbind {tmpdir}/var/db/repos/gentoo /usr/portage
 import rbind {tmpdir}/var/cache/distfiles /var/cache/distfiles
 
-export symlink /var/cache/binpkgs $$self/packages
+export symlink /var/cache/binpkgs $$package_export
 `, map[string]string{"tmpdir": td.rootdir})
 
 		err := td.UpdateWantFiles()
@@ -1293,7 +1273,7 @@ export symlink /var/cache/binpkgs $$self/packages
 			return fs.NewTextInputCursor("mountNinja", reader)
 		}
 		fs.SyscallMount = func (src, targ, fstype string, flgs uintptr, o string) error {
-			return m_ninja.mount(src, targ, fstype, o)
+			return m_ninja.mount(src, targ, fstype, flgs, o)
 		}
 		fs.SyscallUnmount = func (mtpoint string, flags int) error {
 			return m_ninja.unmount(mtpoint, flags)

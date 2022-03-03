@@ -5,6 +5,7 @@ import (
 	"path"
 	"errors"
 	"strings"
+	"syscall"
 )
 
 type mountNode struct {
@@ -40,14 +41,16 @@ func newMountNinja() *mountNinja {
 	return mn
 }
 
-func (mn *mountNinja) mount(source, mtpoint, fstype, options string) error {
+func (mn *mountNinja) mount(source, mtpoint, fstype string, flgs uintptr, options string) error {
 	var st_dev, root string
 	var parentID int
+	onlyModifying := (flgs & (syscall.MS_REMOUNT | syscall.MS_SHARED | syscall.MS_PRIVATE |
+		syscall.MS_SLAVE | syscall.MS_UNBINDABLE)) > 0
 	if fstype == "overlay" {
 		st_dev = fmt.Sprintf("0:%d", mn.nextMinor)
 		mn.nextMinor++
 		root = "/"
-	} else {
+	} else if !onlyModifying {
 		if fstype == "proc" {
 			source = "/proc"
 		}
@@ -88,13 +91,16 @@ func (mn *mountNinja) mount(source, mtpoint, fstype, options string) error {
 	if max_match == 0 {
 		return errors.New("no such file or directory")
 	}
+	if onlyModifying {
+		return nil
+	}
 	mn.nodes = append(mn.nodes, mountNode{root, mtpoint, st_dev, fstype, options,
 		mn.nextIndex, parentID})
 	mn.nextIndex++
 	extras := mn.extras[st_dev]
 	if len(extras) > 0 {
 		for _, pt := range strings.Split(extras, " ") {
-			mn.mount(path.Join(source, pt), path.Join(mtpoint, pt), fstype, options)
+			mn.mount(path.Join(source, pt), path.Join(mtpoint, pt), fstype, 0, options)
 		}
 	}
 	return nil
@@ -102,7 +108,7 @@ func (mn *mountNinja) mount(source, mtpoint, fstype, options string) error {
 
 func (mn *mountNinja) mountFromDeviceNode(st_dev, mtpoint, fstype, options string) error {
 	nodeX := len(mn.nodes)
-	if err := mn.mount("/", mtpoint, fstype, options); err != nil {
+	if err := mn.mount("/", mtpoint, fstype, 0, options); err != nil {
 		return err
 	}
 	mn.nodes[nodeX].st_dev = st_dev

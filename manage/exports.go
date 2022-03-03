@@ -16,11 +16,12 @@ type expandedNeededMountType struct {
 
 func (ld *Layerdefs) expandConfigExports(layer *Layerinfo) ([]expandedNeededMountType, error) {
 	callback := func (symbol, tail string) (string, error) {
-		switch symbol{
-		case "base":
-			return ld.findLayerBase(layer).LayerPath, nil
-		case "self":
-			return layer.LayerPath, nil
+		switch symbol {
+		case "package_export":
+			return path.Join(ld.cfg.Exportdirs, ld.cfg.ExportBinPkgdir, layer.Name), nil
+		case "file_export":
+			return path.Join(ld.cfg.Exportdirs, ld.cfg.ExportGeneratedir, layer.Name),
+				nil
 		}
 		return "", fmt.Errorf("unknown key %s", symbol)
 	}
@@ -47,6 +48,8 @@ func (ld *Layerdefs) expandConfigMounts(layer *Layerinfo) ([]expandedNeededMount
 		switch symbol {
 		case "base":
 			return ld.findLayerBase(layer).LayerPath, nil
+		case "self":
+			return layer.LayerPath, nil
 		}
 		return "", fmt.Errorf("unknown key %s", symbol)
 	}
