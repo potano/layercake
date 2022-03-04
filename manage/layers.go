@@ -350,6 +350,8 @@ func (ld *Layerdefs) RenameLayer(oldname, newname string) error {
 
 	layer.Name = newname
 	layer.LayerPath = newLayerPath
+	delete(ld.layermap, oldname)
+	ld.layermap[newname] = layer
 	ld.normalizeOrder()
 	err = ld.writeLayerFile(layer)
 	if err != nil {
