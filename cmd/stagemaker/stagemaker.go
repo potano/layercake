@@ -8,6 +8,7 @@ import (
 	"strings"
 	"potano.layercake/fs"
 	"potano.layercake/fns"
+	"potano.layercake/defaults"
 )
 
 
@@ -61,12 +62,13 @@ Usage:
 
   For more information:
   {myself} -h
+  {myself} -version
 `
 
 func main() {
 	var root, profile, listSet, outputPath, compressionInput, includeAtoms, atomsFile string
 	var fileListFile, recipeFile string
-	var generate, help, listFiles, listFilesByPackage, skinny, noVDB, emptyDev bool
+	var generate, help, listFiles, listFilesByPackage, skinny, noVDB, emptyDev, showVer bool
 
 	flag.StringVar(&listSet, "list", "", "output list")
 	flag.BoolVar(&generate, "generate", false, "generate stage file")
@@ -86,12 +88,17 @@ func main() {
 	flag.BoolVar(&listFilesByPackage, "bypackage", false, "list files by package")
 	flag.BoolVar(&help, "help", false, "help")
 	flag.BoolVar(&help, "h", false, "help")
+	flag.BoolVar(&showVer, "version", false, "version")
 	flag.Usage = func () {
 		fns.TemplatedExitMessage(argumentHintMessage, 1, map[string]string{})
 	}
 	flag.Parse()
 	if help {
 		fns.TemplatedExitMessage(mainUsageMessage, 0, map[string]string{})
+	}
+	if showVer {
+		fns.TemplatedExitMessage("Stagemaker, part of {version}", 0,
+			map[string]string{"version": defaults.Version})
 	}
 
 	if (len(listSet) > 0) == generate {

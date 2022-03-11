@@ -22,7 +22,7 @@ Usage:
   {myself} [main-options] <command> [command-options]
 These commands are available
   init             Establish the layer system in configured directory
-  status           Display the status of the build root
+  status [layer]   Display the status of the build root or a single layer
   list [-v]        Display list of layers showing status
                    Add -v for a more verbose listing
   add <layer> [base]  Add a layer and indicate layer it derives
@@ -34,6 +34,7 @@ These commands are available
                   up a base layer before it can be made mountable.
   mkdirs <layer>  Create or recreate needed directories in named layer
                   in all layers
+  mount <layer>   Mount the named layer
   umount [layer]  Mount per-layer directories in named layer.  Use the
                   -all switch to unmount all non-busy layers
   shake           Remount all current overlayfs mounts to ensure that
@@ -55,7 +56,9 @@ Global options (may be specified anywhere in the command line)
 const argumentHintMessage = `
 Usage:
   {myself} [main-options] <command> [command-args-and-options]
-  {myself} -h`
+  {myself} -h
+  {myself} -version
+`
 
 
 func argumentHintMessageAndExit() {
@@ -67,16 +70,21 @@ func main() {
 	cab := config.NewCommandArgBuilder()
 	cab.Usage = argumentHintMessageAndExit
 	var configFile, basepath string
-	var help bool
+	var help, showVersion bool
 
 	flag.StringVar(&configFile, "config", "", "specify configuration file")
 	flag.StringVar(&basepath, "basepath", "", "specify a base path")
 	flag.BoolVar(&help, "help", false, "help")
 	flag.BoolVar(&help, "h", false, "help")
+	flag.BoolVar(&showVersion, "version", false, "version")
 	cab.AddFlagsToFlagset(flag.CommandLine)
 	flag.Parse()
 	if help {
 		fns.TemplatedExitMessage(mainUsageMessage, 0, map[string]string{})
+	}
+	if showVersion {
+		fmt.Println(defaults.Version)
+		os.Exit(0)
 	}
 
 	cfg, err := config.Load(configFile, basepath)
