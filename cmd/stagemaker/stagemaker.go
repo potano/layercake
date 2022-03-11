@@ -40,9 +40,9 @@ Optional switches:
   -addfiles <file>   File containing list of additional files to insert
                      into tarball
   -recipe <file>     File whose contents may give settings for the -root,
-                     -profile, -atoms, -atomsfile, -addfiles, -skinny,
+                     -profile, -atoms, -atomsfile, -addfiles, -nobdeps,
                      -novdb, and -staticdev options
-  -skinny            Exclude build dependencies
+  -nobdeps           Exclude build dependencies
   -novdb             Exclude VDB (installed-package info at /var/db/pkg)
   -emptydev          Empty /dev:  omit static /dev entries
   -files             List files instead of packages in listing
@@ -68,7 +68,7 @@ Usage:
 func main() {
 	var root, profile, listSet, outputPath, compressionInput, includeAtoms, atomsFile string
 	var fileListFile, recipeFile string
-	var generate, help, listFiles, listFilesByPackage, skinny, noVDB, emptyDev, showVer bool
+	var generate, help, listFiles, listFilesByPackage, nobdeps, noVDB, emptyDev, showVer bool
 
 	flag.StringVar(&listSet, "list", "", "output list")
 	flag.BoolVar(&generate, "generate", false, "generate stage file")
@@ -80,7 +80,7 @@ func main() {
 	flag.StringVar(&recipeFile, "recipe", "", "name of file with atoms to include")
 	flag.StringVar(&outputPath, "o", "", "output file")
 	flag.StringVar(&compressionInput, "compress", "", "compression method")
-	flag.BoolVar(&skinny, "skinny", false, "exclude build dependencies")
+	flag.BoolVar(&nobdeps, "nobdeps", false, "exclude build dependencies")
 	flag.BoolVar(&noVDB, "novdb", false, "exclude /var/db/pkg files (VDB)")
 	flag.BoolVar(&emptyDev, "emptydev", false, "do not prepopulate /dev with device nodes")
 	flag.BoolVar(&listFiles, "files", false, "list files")
@@ -136,8 +136,8 @@ func main() {
 				if len(compressionInput) == 0 {
 					compressionInput= value
 				}
-			case "skinny":
-				skinny = true
+			case "nobdeps":
+				nobdeps = true
 			case "novdb":
 				noVDB = true
 			case "emptydev":
@@ -155,7 +155,7 @@ func main() {
 	if err != nil {
 		fatal(err.Error())
 	}
-	data.includeBdepend = !skinny
+	data.includeBdepend = !nobdeps
 	data.includeVDB = !noVDB
 	data.includeStaticDev = ! emptyDev
 
