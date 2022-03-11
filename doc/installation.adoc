@@ -1,0 +1,43 @@
+Installation from source
+========================
+
+This procedure assumes that _make_ and version 14 or later of Go compiler are installed.  A
+non-privileged user may perform all these steps except for copying the executables to
+public directories.
+
+- Inside a suitable working directory, clone the Git repository
+
+--------------
+git clone http://github.com/potano/layercake
+--------------
+
+- Switch to the `layercake` directory
+
+--------------
+cd layercake
+--------------
+
+- Build the Layercake and Stagemaker binaries
+
+--------------
+make
+--------------
+
+If _make_ is not available, run these two commands instead
+
+--------------
+go build -o bin/layercake cmd/layercake/...
+go build -o bin/stagemaker cmd/stagemaker/...
+--------------
+
+By either approach both executable files are written to the `layercake/bin/` directory.
+
+- Copy the binaries to where they may be needed
+
+The root user might install them with these two commands:
+
+--------------
+mv ~normaluser/path/layercake/bin/{layercake,stagemaker} /usr/share/bin
+chown root:root /usr/share/bin/{layercake,stagemaker}
+--------------
+

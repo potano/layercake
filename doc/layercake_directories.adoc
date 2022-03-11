@@ -1,0 +1,63 @@
+== Layercake Directory layout
+
+=== Base Layercake directory
+
+The directory tree shown here is relative to the Layercake base directory, which in the
+default configuration is `/var/lib/layercake`.
+
+default_layerconfig.skel:: Default layer-configuration file.  Used in the process of the
+_layercake add_ command when making new base layers.
+layers/:: Home of the <<layer-directories,layer directories>>.  Any entry in this directory
+with a legal layer name is considered to be a layer directory.  The name of the directory may
+be set via the LAYERS configuration key. +
+Layer heirarchies are not evident in this directory:  all layer directories are chilren of
+the `layers/` directory. +
+The _layercake remove_ command removes a layer directory only if the build root is empty
+or the user passes the _-files_ switch to force removal.  Removed layer directories remain in
+this same directory but are renamed to a name containing a tilde--which is not legal in a
+layer name.
+exports/:: <<symlink-directories,Symlinks>> to data for export via web server or similar
+other means.  Directory name may be set via the EXPORTS configuration-file key.
+
+
+[[layer-directories]]
+=== Layer directories
+
+The `layerconfig` and `build` entries must be present in the layer directory.  These are
+all the entries that Layercake recognizes.  The actual names for all these directories
+may be set in the configuration for the Layercake base directory.
+
+layerconfig:: Configuration for layer's mounts and exports
+build/:: Build-root directory for layer.  The _layercake shell_ and _layercake chroot_
+commands open a shell prompt in this directory.  In a base layer, the directory may act
+as the lower directory for a _overlayfs_ mount; in a derived layer, the directory is
+used as a _overlayfs_ mountpoint.  Subdirectories of this directory may act as mountpoints.
+The contents of such mountpoints are *not* visible to mounted derived layers; normally
+each layer has its own mounts on these directoriess. +
+The name of the directory may be configured with the BUILDROOT configuration key.
+overlayfs/:: Present in layers which derive from other layers
+workdir/::: _overlayfs_ work directory.  Name set by configuration key WORKDIR
+upperdir/::: _overlayfs_ upperdir directory.  Name set by configuration key UPPERDIR
+packages/:: Directory bind-mounted onto the layer's binary-package directory (normally
+_/var/cache/binpkgs_) to facilitate sharing of the binary-package set among a base layer and
+its descendants.  Directory is auto-created only if the layer's `layerconfig` specifies it as
+the source of an import.  The name of this directory may be configured via the BINPKGS key.
+generated/:: Downloadable generated files such as stage tarballs.  Directory is never
+auto-generated.  The name of this directory may be configured via the GENERATED_FILES key.
+
+
+[[symlink-directories]]
+=== Export-symlink directories
+
+Layercake generates entries in this directory as needed but does not consider it an error if
+any are missing.
+
+index.html::  Index file for service via an HTTPd.  The _layercake init_ command generates a
+stub `index.html` for the user's convenience.
+packages/:: Directory of symlinks to binary packages.  Layercake generates this directory if
+needed when placing a symlink on mounting a layer.  Name may be set via the EXPORT_BINPKGS
+configuration key.
+generated/:: Directory of symlinks to downloadable generated files.  Layercake generates this
+directory if needed when placing a symlink on mounting a layer.  Name may be set via then
+EXPORT_GENERATED_FILES key.
+

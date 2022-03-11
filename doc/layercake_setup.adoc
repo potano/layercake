@@ -1,0 +1,248 @@
+Setting up the Layercake environment
+====================================
+
+Concepts:
+
+- Each build-root directory and its associated files and directories are grouped together
+into a directory called a _layer directory_.
+- Layer directories in turn reside in a single directory where Layercake identifies each
+layer by its directory name.  This is the Layers directory.
+- Parallel to the Layers directory is a directory of exports which serves as the document
+root for a web or file server.  This Exports directory contains directories and symlinks
+which Layercake manages and other entries which the user may insert according to need.
+- Normally the Layers and Exports directories are children of a base directory.  This
+arrangement gives a Layercake installation a very useful attribute:  all of its
+manipulations are confined to a single directory tree.
+
+Names for most of the relevant directories may be set via a configuration file (see the
+link:layercake_config.adoc[Layercake configuration] page for details).  Most installations
+should not need one.
+
+Configurations which place the Layers or Exports directories outside the base path are
+possible but discouraged.
+
+== 1. Set the Layercake base path
+
+The default configuration uses `/var/lib/layercake` as the base directory.  If this is
+suitable, proceed to the next step to set a base-path directory ready to receive layers.
+
+There are several ways to specify a different directory, but here we mention only one:  a
+`layercake.conf` configuration file in the `etc` directory that is a sibling to the
+directory which contains the layercake executable.  (So if the executable is in
+`/usr/local/bin`, Layercake will look for  `/usr/local/etc/layercake.conf`)
+
+Insert a line similar to this:
+
+---------
+BASEPATH = /other/base/path
+---------
+
+== 2. Generate the base directory
+
+Issue the command
+
+---------
+layercake status
+---------
+
+to ensure that nothing is already set up.  You should see a message like this
+
+---------
+Missing item(s):
+  base directory /var/lib/layercake
+  base directory /var/lib/layercake/layers
+  base directory /var/lib/layercake/export
+  default layer configuration /var/lib/layercake/default_layerconfig.skel
+Cannot proceed unless all exist
+---------
+
+This message also gives an indication of whether the configuration is correct:  the base
+path should be as you configured it.
+
+To generate the needed the directories, issue this command:
+
+---------
+layercake init
+---------
+
+Now the _layercake status_ command should now give the message
+
+---------
+Base directories set up OK at /var/lib/layercake
+---------
+
+== 3. Default mounts
+
+Every layer directory contains the file `layerconfig` that indicates the mounts and symlinks
+which Layercake ensures are present when the user issues the _mount_ or _chroot_ commands.
+At the time when the user first issues the _layercake add_ command to generate a base (i.e.
+non-derived) layer, Layercake creates the file using the file `default_layercake.skel` in the
+Base Path directory to seed the contents of `layerconfig`
+
+It is helpful, therefore, to be sure that `default_layerconfig.skel` is set up for the
+typical use case.
+
+If your host and target systems follow the pattern in established in the stage tarballs that
+Gentoo has distributed for the past few years (Portage tree and overlays in subdirectories of
+`/var/db/reps`, distribution tarballs in `/var/cache/distfiles`, and binary packages in 
+`/var/cache/binpkgs`, and you wish to let your layers take advantage of shared Ebuilds and
+source tarballs, the initial `default_layerconfig.skel` will do what you need.  If not, look
+to the link:doc/layercake_layerconfig.adoc[layer-configuration] page for detailed
+instructions.
+
+
+Layercake layer configuration
+=============================
+
+The `layerconfig` file in each layer directory, as well as any skeleton file, such as the
+required `default_layerconfig.skel` file, is a text file of directives, one per line.  It
+indicates the mounts and symlinks that Layercake is to make mounting a layer.
+
+The contents of the `default_layercake.skel` file that the Layercake _init_ command generates
+is a helpful exmple.
+
+-----------
+import rbind /dev /dev
+import proc /proc /proc
+import rbind /sys /sys
+import rbind /var/db/repos /var/db/repos
+import rbind /var/cache/distfiles /var/cache/distfiles
+import rbind $$base/packages /var/cache/binpkgs
+-----------
+
+All these lines indicate mounts that are needed:  the usual `/dev`, `/proc`, and `/sys`
+mounts, a mount at `/var/db/repos` to cover the Portage and overlay ebuild repositories,
+and a mount for a shared directory `/var/cache/distfiles` for source tarballs.  The last
+line supports a special Layercake feature:  a shared directory for binary packages.  The
+line indicates a mount from a directory shared from the base layer to each layers'
+`/var/cache/binpkgs`.  When used with the _binpkg-multi-instance_ Portage feature, this
+makes it so that the binary-package directory exposed via the web/file server will contain
+separate versions of 
+
+
+Unless you
+want to get into the details, skip to the next step.
+
+The `default_layerconfig.skel` file generated by the _init_ command is geared for use in a
+standard Gentoo host environment:  Portage tree at `/var/db/repos/gentoo`, overlays at other
+directories under `/var/db/repos/` and distribution-files directory `/var/cache/distfiles`.
+This maps into the following mounts:
+- The usual `/dev`, `/proc`, and `/sys` mounts
+- Host `/var/db/repos` bind mounted to `/var/db/repos` in the build root.  This takes care
+of the shared Portage tree and any overlays
+- Host `/var/cache/distfiles` bind mounted to `/var/cache/distfiles` in the build root
+
+These mounts result from the first five layer-configuration lines:
+
+-----------
+import rbind /dev /dev
+import proc /proc /proc
+import rbind /sys /sys
+import rbind /var/db/repos /var/db/repos
+import rbind /var/cache/distfiles /var/cache/distfiles
+-----------
+
+The last line of the initial layer-configuration file,
+
+-----------
+import rbind $$base/packages /var/cache/binpkgs
+-----------
+
+results in a bind mount that leverages the power of the _binpkg-multi-instance_ Portage
+feature (activated in the FEATURES variable of `/etc/portage/make.conf`).  This makes
+sure that emerges in both the base layer and any derived layer manage the common binpkgs
+directory with multiple versions that reflect the various USE-flag configurations of the
+respective packages.  This setting has two secondary effects which Layercake applies
+automatically because the source argument of the _import_ directive refers to a path within
+a layer directory:  the directory is first created if it does not exist and a symlink from
+the `exports/packages` directory is made for the layer.
+
+By these initial settings, Layercake would make these mounts when the user first mounts the
+layer:
+The initial `default_layerconfig.skel`
+
+- Base layer's `packages` directory bind mounted to `/var/cache/binpkgs` in the build root.
+If you wish to let your build roots use these shared directories, skip ahead to the next
+step.
+
+
+
+
+
+and are happy with
+`/var/lib/layercake`
+as default base directory for all of Layercake's working files, you can
+skip ahead
+
+, you may skip ahead to the ... section.
+
+== Introduction
+Layercake configuration is divided into two parts:  system as a whole and per-layer (recall
+that we refer to build roots and associated files as _layers_).  The system configuration
+gives the names of the basic structural directories.  Per-layer configurations indicate
+mountpoints and explicit settings of symlinks.
+
+By design, Layercake manages all of its files under a central directory.  All layers and all
+the binary-file-server export symlinks are descendants of this directory.  This is the
+Base Path; the default location is `/var/lib/layercake`
+
+
+=== Base-Path directory
+Layercake expects to find only three entries in the Base Path directory; it ignores any other
+files or directories the user may write here.
+
+[horizontal]
+`layerconfig.skel`:: Default layer-configuration file:  gives basic configuration for
+new base layers.
+`exports/`:: Root of directory tree for export via a web server or other means.  Layercake
+manages two directories here:  one for binary-package symlinks (default `packages`), the
+other for generated-file symlinks (default `generated`)
+`packages/`::: Directory for symlinks to each layer's binary-package directory.  Symlink
+names are the same as those of the respective layers to which they refer.
+`generated/`::: Directory for symlinks to corresponding generated-files directories in
+each layer.
+`index.html`::: The Layercake _init_ command sets up this file as an index file for service
+by HTTPd.  The use may change this to suit or remove it entirely.  Likewise, Layercake
+ignores any other entries in this directory; the user is free to set up other entries for
+export.
+`layers/`:: Directory which hold all of the layer directories; directory names are the
+layer names.  Users should avoid placing other entries here.
+
+=== Individual layer directories
+Each layer directory contains, at the minimum, a configuration file (`layerconfig`) and
+the build directory (default `build`).  Layercake checks for two other directories (default
+names `packages` and `generated`) and ignores any other entry in a layer directory.
+
+[horizontal]
+`layerconfig`:: Text file Layercake generates when creating the layer and which Layercake
+reads for all other operations on the layer.  The setup for base layers comes from the
+master `layerconfig.skel`; the setup for derived layers comes from their parent layers.
+`build/`:: Build root.  Target directory of _shell_ and _chroot_ operations and directory
+in which user unpacks the stage tarball when setting up a base layer.
+`packages/`:: Binary-package directory.  The default `layerconfig.skel` configuration
+specifies that the directory is to be the source directory of a bind mount to
+`/var/cache/binpkgs` in the build root.  Unless the user changed the configuration to do
+otherwise, Layercake at mount time generates this directory if it does not exist, does the
+mount, and creates the corresponding symlink in the `exports/` directory.
+`generated/`:: Generated-file directory.  If the user creates this directory in order to
+provision generated files for export, Layercase creates as symlink for it at mount time.
+
+=== Directories shared with the host system
+
+In addition to the usual mounts to the host `/dev`, `/proc`, and `/sys`, the default
+`layerconfig.skel` contains entries to do the following mounts in the build root:
+
+[options="header",cols="1,2,4"]
+|===============
+|Mountpoint             |Source                            |Notes
+|`/var/db/repos`        |host `/var/db/repos`              |Portage tree and overlays in host
+environment.  Implies Handbook-specified locations `/var/db/repos/gentoo` for Portage and
+`/var/db/repos/*` for overlay directories
+|`/var/cache/distfiles` |host `/var/cache/distfiles`       |Shared repository of source tarballs
+|`/var/cache/binpkgs`   |base layer's `packages` directory |Shared among base and derived layers
+|===============
+
+
+
+Layercake requires a link:doc/layercake_config.adoc[configuration file] if one or more
+of these conditions are not true.

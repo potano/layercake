@@ -1,0 +1,360 @@
+LAYERCAKE(1)
+============
+Michael Thompson <32822313+potano@users.noreply.github.com>
+:doctype: manpage
+
+
+NAME
+----
+layercake - manager of Gentoo binary-build-roots
+
+
+SYNOPSIS
+--------
+*layercake* ['main-options'] 'command' ['command-options']
+
+
+DESCRIPTION
+-----------
+Layercake allows an administrator to deploy and manage one or more Gentoo build roots on a
+build-host machine.
+
+
+MAIN OPTIONS
+------------
+Note that these and all other switches may begin with either one or two hyphens.
+
+*-config* `filename`::
+Select a main configuration file.  This switch takes precedence over the `LAYERCONF`
+environment variable.
+
+*-basepath* `path`
+Select a Layercake base directory.  This overrides both the `LAYERROOT` environment variable
+and and the base-path setting in the configuration file(s).
+
+
+COMMANDS
+--------
+
+*init*::
+Set up the Layercake base directory at the base path specified by the first of the following
+that is present:
+- *-basepath* switch
+- `LAYERROOT` environment variable
+- configuration-file setting
+- default path: `/var/lib/layercake`
+
+*status* [`layername`]::
+Displays the status of a layer or of the installation as a whole.  The display of a layer's
+status includes an indication of the layer's state:
+defined but empty::: layer added but has an empty build-root directory
+incomplete setup::: layer directory and configuration file exist but the build-root and/or
+needed _overlayfs_ directories are missing
+not yet populated::: some layer setup is done but at least one of the needed needed FHS
+directories in the build root are missing (`bin`,  `etc`, `lib`, `opt`, `root`, `sbin`,
+or `usr`)
+build directories set up::: FHS directories are in place but at least one configured
+mountpoint directory is missing
+mountable::: all needed directories are in place; the layer is mountable
+partially mounted::: all needed directories are in place but at least one configured
+mountpoint is not mounted
+mounted and ready::: layer is ready for use and is ready to be chrooted
+
+*list* [-v]::
+Displays a list of layers under the Layercake base directory, one line per layer.  The
+listing shows the layer name, the text "(base level)" if a base level or the name of the
+parent layer if a derived layer, an indication of whether the layer is in use, and the
+layer's status as shown for the _layercake status_ command, above. +
+Adding the _-v_ switch lists mount details and any error messages for each layer.
+
+*add* 'layername' ['base-layer']::
+Adds a new layer named 'layername'.  The resulting layer directory will contain a
+configuration file and a build-root directory.  The one-argument form ('layername' only)
+results in a base layer; the two-argument form (with 'base-layer' specified) results in a
+layer derived from the specified layer (which may itself be a derived layer).  When adding
+a derived layer, the _layercake add_ command also adds two helper directories to the
+layer directory in support of _overlayfs_ mounts. +
+ +
+The prototype for the new layer's +layerconfig+ file depends on the type of layer.  Base
+layers receive a configuration from the +default_layerconfig.skel+ file in the Layercake
+base directory; derived layers' configuration comes from the configuration of 'base-layer'.
+In either case the user is free to edit the configuration file before proceeding with further
+steps.
+
+*shell* 'layername'::
+Opens a subshell in the build-root directory.  The result is *not* a chroot; the user retains
+full access to the host filesystem and its commands.  The parent directory of the build root
+is the layer directory.  This gives the user easy access to the layer's `layerconfig` file
+and generated-files directory.  Since `$PWD` points to the build directory, the layer
+shows up as being in use in the _layercake status_ and _layercake list_ commands.  Upon
+exiting the shell, the user has quick access to the command history, making it easy to edit
+the command to mount or chroot to the layer.
+
+*mount* 'layername'::
+Mounts the layer:  performs mount operations on the layer for any configured mountpoints that
+are not yet mounted.  Also generates any symlinks from the export directories to the
+configured target directories.  Some symlink operations need no explicit configuration:  if
+the layer directory contains a +packages+ or +generated+ directory, the command makes
+symlinks to these.  Before mounting a derived layer, the command performs the same mount
+operation from the layer's ultimate base layer through the chain of derivation.  Naturally,
+the command fails if any of the layers in the chain are not ready for mounting. +
+ +
+In order to facilitate the unmounting of pseudo filesystems on hosts which use an init system
+that keeps a persistent hold on the the _cgroup_ mechanism, Layercake automatically applies
+the recursive *MS_SLAVE* propagation setting to those mounts (`/dev`, `/proc`, `/run`, and
+`/sys`).
+
+*chroot* 'layername'::
+Chroots into the layer's build root.  The layer must be mountable:  the command runs an
+implicit _layercake mount_ command as part of the operation.  Exiting the chroot leaves the
+layer in a mounted state.
+
+*shake*::
+Remounts all mounted derived layers to ensure that changes in lower layers propagate to
+mounted child layers.
+
+*umount* 'layername'::
+Unmount the specified layer if it is mounted and idle.  Any layers derived from the layer
+must be unmounted.
+
+*umount -all*::
+Unmount all layers that are mounted but idle.
+
+*unmount* 'layername' | *-all*::
+Synonym for *umount*.
+
+*mkdirs* ['layername']::
+Regenerates missing build-root and _overlayfs_ directories in the layer.
+
+*rename* 'oldname' 'newname'::
+Renames a layer from `oldname` to `newname`.  Also patches the configurations of any derived
+layers to reflect the new parent-layer name.  The layer must be unmounted and not in use, as
+must be any layers which ultimately depend on the layer being renamed.
+
+*rebase* 'layername' ['new-base-layer']::
+Changes a layer's base layer.  Changes the layer to a base layer if the 'new-base-layer'
+argument is omitted.  The layer and any derived layers must be unmounted and not in use.
+The command is its most useful when settting layers before their first use; applying the
+command to layers which have had build activity requires great care.  Use at your own risk
+in these situations.
+
+*remove* 'layername' [-files]::
+Removes a layer.  Layer must be unmounted, not in use, and have no derived layers.  Removes
+the layer directory completely only if the build root is still empty, otherwise the command
+renames the directory to append _~removed_ to the layer name.  Since the directory now has
+a name that is not a legal layer name, it does not show up in the _layercake list_ command
+output.
+
+Normal Unix file and syscall permissions apply:  a normal user with write permisions on a
+Layercake base-directory tree may run any of these commands except *mount*, *umount*, and
+*chroot*.  With the base directory located elsewhere, normal users are restricted to the
+*status*, *list*, and *shell* commands.
+
+
+GLOBAL OPTIONS
+--------------
+These may be specified at any position among the Layercake command-line arguments.
+
+[horizontal]
+*-v*:: Verbose mode: show actions to be taken
+*-p*:: Pretend to carry out actions
+*-force*:: Force action
+*-debug*:: Show debugging output
+
+
+LAYERCAKE BASE DIRECTORY
+------------------------
+Layercake directs its operations to a base directory.  Within this directory is a directory
+to contain the individual layer directories and another to act as the document directory for
+a web or file server.  All these names are configurable.  Layercake works well with the
+built-in defaults, as shown here.
+
+`/var/lib/layercake`::
+Base directory.  The user is free to add other entries here beyond the following.
+`layers`:::
+Home directory of the layer directories.  A layer directory has a legal layer name (letters,
+digits, underscores, and hyphens but not beginning with a hyphen) and contains a
+`layerconfig` file.  A deactivated layer directory is like a layer directory but has a name
+that is not a legal layer name.  The layers directory should contain no other entries.
+`export`:::
+Home directory of export symlinks.  Directory is designed to be able to act as the document
+root of files for export via a web or file server.  Layercake uses the names `packages` and
+`generated` within this directory; the user is free to add other entries as needed.
+`default_layerconfig.skel`:::
+Layer-configuration file that provides the default skeleton for the `layerconfig` files to
+write into base layers via the _layercake add_ command.
+
+
+LAYER DIRECTORY
+---------------
+All the directories and files needed for the operation of a layer are placed into a single
+directory.  The directory names shown here are defaults.
+
+`layerconfig`::
+Layer-configuration file.  Specifies the mounts the layer needs, any explicit symlinks, and,
+if the layer is a derived layer, the name of the one from which it derives.  Required.  See
+below for format.
+
+`build/`::
+Build root.  Center of the action.  The _layercake shell_ and _layercake chroot_ commands
+come here.  Is the mountpoint for _overlayfs_ mounts of derived layers and the lower
+directory of _overlayfs_ mounts when the layer serves as the basis of another layer.
+Subdirectories of this directory may serve as mountpoints.
+
+`overlay/`::
+Directory to hold the two working _overlayfs_ directories.  Is present only in derived
+layers.
+
+`upperdir/`:::
+_Overlayfs_ upper directory.
+
+`workdir/`:::
+_Overlayfs_ work directory.
+
+`packages/`::
+Source directory of a bind mount onto the `/var/cache/binpkgs` directory in the build root,
+typically only in a base layer for sharing among all layers derived from the base layer.
+Generated automatically at mount time if `layerconfig` specifies it as an export.
+
+`generated/`::
+Directory of user-generated files for export via the web or file server.  The mount operation
+automatically makes a symlink in `export/generated` if this directory is present.  The user
+must create this directory if needed.
+
+The layer directory may contain other entries as they user may deploy.
+
+
+EXPORT DIRECTORY
+----------------
+Directory containing entries for export via a web or file server.
+
+`packages/`::
+Directory of symlinks to binary-package directories of layers.  Entries in this directory
+are symlinks named for the layers to which they pertain.  The link sources, configured by
+the layer, are typically the directories `packages` or `build/var/cache/binpkgs` relative
+to the layer directory.
+
+`generated/`::
+Directory of symlinks to generated-files directories of layers.  Entries in this directory
+are symlinks named for the layers to which they pertain with sources as the `generated`
+directory within the layer directory.
+
+`index.html`::
+Dummy HTTPd index file which the user may change or remove to suit.
+
+
+CONFIGURATION FILE
+------------------
+The configuration file is a text file with one key/value pair per line.  Configuration files
+may be chained.  In such cases, values set earlier in the chain take precendence over values
+that come later.  The file may contain blank lines and comments, which are lines beginning
+with `#` or `//`.
+
+Layercake looks for the first configuration file found in this order:
+
+- Name given via the *-config* command-line switch
+- Name given by the `$LAYERCONF` environment variable
+- `$HOME/.layercake`
+- `etc/layercake.conf` where the `etc` directory is in the parent of the directory holding
+the Layercake executable.  Thus if the executable is named `/usr/bin/layercake`, Layercake
+looks for `/usr/etc/layercake.conf`.
+
+//-
+BASEPATH::
+Base-path directory.  Root directory of all Layercake operations.  Default:
+`/var/lib/layercake`
+
+LAYERS::
+Name of directory that contains all the layer directories.  The default of `layers` is
+relative to BASEPATH.
+
+BUILDROOT::
+Name of build-root directory within a layer directory.  Default `build`.  Must not be an
+absolute path.
+
+BINPKGS::
+Name of binary-packages directory for the layer.  Default `packages`.  Must not be an
+absolute path.  Note that Layercake expects the directory to exist only if the configuration
+calls for it.
+
+GENERATED_FILES::
+Name of the directory within the layer directory for generated files for export.  Default
+`generated`.
+
+WORKDIR::
+Name of the _overlayfs_ work directory for the layer.  Default `overlayfs/workdir`.
+
+UPPERDIR::
+Name of the _overlayfs_ upper directory for the layer.  Default `overlayfs/upperdir`.
+
+EXPORTS::
+Name of the directory of symlinks under the base layer.  Default `export`.
+
+EXPORT_BINPKGS::
+Name of the directory of export symlinks under the EXPORTS directory.  Default `packages`.
+
+EXPORT_GENERATED_FILES::
+Name of the directory of generated-file symlinks under the EXPORTS directory.  Default
+`generated`.
+
+CHROOT_EXEC::
+Pathname to the _chroot_ executable.
+
+CONFIGFILE::
+Pathname of the next configuration file to load.
+
+
+LAYER-CONFIGURATION FILE
+------------------------
+Every layer must contain a `layerconfig` file to indicate from which layer it derives
+(if any), the mounts that must be made to directories within the chroot ("imports") and
+any explicit symlinks to generate for export to the EXPORTS directory ("exports").
+Non-blank, non-comment lines must have the form _declaration <arguments>_.
+
+*base* 'layername'::
+Indicates the layer is a derived layer, where 'layername' is the name of the lower layer of
+the _overlayfs_ mount.  Base layers do not have such a declaration.
+
+*import* 'mount-type' 'source' 'mountpoint'::
+Indicates a mount from the host filesystem into the build root.  The 'mountpoint' path is
+always relative to the build root and 'mount-type' is a *mount*(2) mount type such as
+'bind', 'rbind', or 'proc'.  The 'source' argument may be an absolute host-system path such
+as '/dev' or '/sys' or may have a special prefix to indicate a path relative to a layer
+directory:
+[horizontal]
+`$$self`::: Relative to the current layer directory
+`$$base`::: Relative to the base layer's directory +
+The latter form is especially useful mounting the layer's binary-package directory (typically
+`/var/cache/binpkgs` to the common `packages` directory for all layers sharing a common base.
+
+*export* 'mount-type' 'source' 'target'::
+Indicates the creation of a symlink from a file or directory in the build root to a export
+directory so that the web or file server may have access to the needed item.  The arguments
+maintain a similarity to the arguments of the *import* directive:  the 'mount-type' indicates
+the linkage type, which for exports must always be `symlink`, and the 'source' argument is
+a path relative to the build root.  The 'target' must be one of the following:
+[horizontal]
+`$$package_export`::: Makes an entry under `export/packages`
+`$file_export`::: Makes an entry under `export/generated`
+
+
+ENVIRONMENT VARIABLES
+---------------------
+`HOME`::
+User's home directory: used to search for a configuration file `$HOME/.layercake`.
+Layercake uses this as the configuration in preference to both `$LAYERCONF` and
+`etc/layercake.conf`.
+
+`LAYERCONF`::
+Pathname of layer configuration file to use in preference to `etc/layercake.conf`
+
+`LAYERROOT`::
+Layercake base directory to use in preference to one set in any configuration file.
+
+
+EXIT STATUS
+-----------
+[horizontal]
+*0*:: Success
+*1*:: Failure
+

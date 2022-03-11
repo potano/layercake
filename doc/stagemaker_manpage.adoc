@@ -1,0 +1,311 @@
+STAGEMAKER(1)
+============
+Michael Thompson <32822313+potano@users.noreply.github.com>
+:doctype: manpage
+
+
+NAME
+----
+stagemaker - generates Gentoo stage tarballs from installed Gentoo systems
+
+
+SYNOPSIS
+--------
+*stagemaker -list* 'list-type' ['options']
+*stagemaker -generate* ['options']
+*stagemaker -help*
+*stagemaker -version*
+
+
+DESCRIPTION
+-----------
+Stagemaker generates Gentoo stage tarballs using the @system set as may be modified via
+USE-flag settings in an installed system.  When used in conjunction with a build-host
+_chroot_ (managed by Layercake or not), the generated stage file makes deployment to new
+target systems much easier to accomplish.
+
+The problem arises from a motivating factor for using a build host:  pushing the expensive
+work of building packages from the target machine to the build host.  The intended USE-flag
+set typically requires the rebuilding of @system-set packages in order to satisfy the
+dependencies of packages needed on the target.  This makes it so that when starting with a
+generic stage3 tarball on the target system, the user is confronted with a great number of
+unresolved dependencies when Portage attempts to use packages from the binary host.  The
+user may safely force some of these to be ignored, but conflicts which cannot be ignored
+result in package building on the target--the very thing the user wished to avoid.
+
+Stagemaker removes this friction.  Like the _catalyst_ system which generates stage tarballs,
+Stagemaker resolves packages from the @system set.  Unlike _catalyst_, Stagemaker does not
+consult the Portage tree or initiate the building of packages.  Instead, Stagemaker takes
+its dependency information from the installed package database (_VDB_) and populates the
+tarball with files owned by the packages.
+
+An important result of this is that files written to the stage tarball reflect any
+modifications the user may have made to them.  Stagemaker allows further degrees of
+customization:
+- inclusion of packages beyond the set of packages of @system plus dependencies
+- inclusion of files, directories, symlinks, and device nodes that would not already be
+installed--either from within the build root or from elsewhere in the host filesystem
+- substitution or exclusion of filesystem entries that would normally be included
+
+
+MAIN ACTIONS
+------------
+The command line must include exactly one of these switches.  Note that these and all other
+switches may begin with either one or two hyphens.
+
+*-list* `set`::
+Display a listing of the packages or files from the specified set:
+[horizontal]
+*system*::: the @system set for the profile
+*installed*::: all installed packages (the @installed set)
+*stage*::: packages/files to include in the stage tarball as a result of dependency resolution
+and file inclusion/exclusion
+
+*-generate*::
+Generate a stage tarball.  Writes to stdout unless the *-o* option is specified.
+
+*-help*::
+Show a help message.
+
+*-version*::
+Show the program version.
+
+
+OPTIONAL SWITCHES
+-----------------
+*-root* 'path'::
+Specify the path of the build-root directory.  The default is the current directory.
+
+*-profile* 'path'::
+Specify the path of the profile directory for identifying the @system set.  Defaults to
+`etc/portage/make.profile` in the build root.
+
+*-atoms* 'list'::
+Space-separated list of package atoms to add to the set to resolve.  Atoms may include
+Gentoo-standard relative-version and/or blocker prefixes.  Atoms may omit the category
+when the base package name is unambiguous in the set of installed packages.
+
+*-atomsfile* 'filename'::
+Like the *-atoms* switch except that atoms are read from the specified file, the contents
+of which have one atom per line as does the `/var/lib/portage/world` file
+
+*-addfiles* 'filename'::
+Indicates a file which specifies filesystem entries to add to or remove from the
+generated tarball.  See ADD-FILES FORMAT.
+
+*-recipe* 'filename'::
+Indicates a file which specifies multiple configuration options in a single place.  See
+RECIPE-FILE FORMAT.
+
+*-nobdeps*::
+Exclude build dependencies (dependencies listed under `BDEPEND`) from the stage tarball.
+This may be necessary when Portage somehow managed to build packages without needing
+the specified build dependencies.  (This is observed to happen!)
+
+*-novdb*::
+Exclude the VDB database from the stage tarball.  This is the installed package database
+that is required in normal Gentoo systems.  This may be useful if setting up a very minimal
+system that never would have Portage operate on it.
+
+*-emptydev*::
+Leave the generated `/dev` directory empty.  Stage tarballs normally populate `/dev` with
+static device notes; this switch omits them.  Caution:  omitting these device nodes results
+in an un-bootable system unless these two conditions obtain: 1) the kernel is configured
+for _devtmpfs_, and 2) the boot loader/initramfs does not use *switch_root*(8).
+Select a main configuration file.  This switch takes precedence over the `LAYERCONF`
+environment variable.
+
+*-files*:: 
+Cause *-list* to list files instead of packages.
+
+*-filesbypackage*::
+Cuase *-list* to show files grouped by package.
+
+*-o* `path`::
+Specify output path.  When generating a stage file, the filename extension determines
+the file-compression mode.
+
+*-compress* 'method'::
+Compress the output tarball.  Overrides any setting inferred via the *-o* switch.
+Methods available: *gzip*, *bzip2*, *xz*, or *none*.  Compression requires that the system
+have the needed compression filter available in the `$PATH`.
+
+
+ADD-FILES FORMAT
+----------------
+Non-comment, non-blank lines have the format 'type' 'name' 'options'
+
+The set of available or required options depends on the entry type.  The 'type' and 'name'
+arguments are required; the 'name' indicates the name of the entry in the generated tarball.
+Options are in the format _key=value_ with no spaces between the key and the value.  If
+names contains spaces, backslashed, or begin with quote marks, they must be escaped with
+backslashes and/or quotes.  If an option value contains spaces, escaping is the same except
+that using quotes requires that both key and value be in quotes.
+
+These are the legal entry types.
+
+*file*::
+Normal file.  In the absence of the *src=* option, contents of the file are taken from the
+file in the build root.  Accepts the *mod=*, *uid=*, *gid=*, *src=*, and *absent=* options.
+
+*dir*::
+Directory.  Creates a directory in the stage tarball even if it is not present in the
+build root.  Accepts the *mod=*, *gid=*, *uid=*, and *absent=* options.
+
+*node*::
+Device node.  Takes the type and address information from the *dev=* option or the device
+node specified by the *src=* option.  In the absence of these two, this infomation is read
+from the corresponding device node in the build root.  Accepts the *mod=*, *uid=*, *gid=*,
+*dev=*, *src=*, and *absent=* options.
+
+*symlink*::
+Symbolic link.  Writes a symbolic link using a target specified by the *targ=* option or from
+a symbolic link at the same path in the build root.  Accepts the *targ=* and *absent=*
+options.
+
+*tbd*::
+Undetermined.  Creates a file, directory, or symlink in the tarball according to the type of
+the existing object in the filesystem.  This accounts for cases where, for example, the user
+substituted a symlink for a regular file.  Files owned by packages are written to the
+tarball using the *tbd* type.  Accepts the *absent=* option.
+
+*omit*::
+Omit file.  Indicates that the stage tarball is to omit the file, directory, symlink, or
+device node that would normally be written.
+
+Observe that there is no 'type' listed here for hard links.  Stagemaker stats every file to
+be added and writes hardlink entries to the stage tarball for files that share an inode
+with a file already written.
+
+The 'name' argument indicates the name of the directory entry to be inserted into the stage
+tarball.  The base part of a name may contain an asterisk, in which case special rules apply
+for globbing.  If 'type' is *dir*, globbing applies recursively to that directory.  For other
+entry types, globbing is not recursive.  The *src=* option is unavailable when globbing is
+specified.
+
+Asterisks in the base part of names must be escaped with backslashes even if the names are
+wrapped in quotes.
+
+Option keywords are as follows:
+
+*mod=*::
+Permission bits of the file mode.  Value may take the forms the *chmod*(1) command allows:
+an octal mask or a string of mode-setting characters.  If the contents of the entry are
+read from the 'name' argument or the *src=* option, a string of mode-setting characters
+serves to modify the file mode of the indicated source.
+
+*gid=*::
+Integer group ID to apply to the file.
+
+*uid=*::
+Integer user ID to apply to the file.
+
+*src=*::
+Name of source file, directory or device node to use as source data for the entry to be
+created.  Recursively copies source-directory entries if name is of a directory.  Names are
+relative to the current directory; absolute paths specify paths relative to the process' root
+directory.  Prefix the path with `$$stageroot` to indicate paths relative to the build root.
+
+*dev=*::
+Type and major/minor numbers of the device node.  Value is in the format tMAJOR:MINOR, where
+t is either `b` (block) or `c` (character) and MAJOR and MINOR are integers.
+
+*targ=*path::
+Target of the symbolic link.  May be relative or absolute.  Absolute paths are relative to
+the root of target system; relative paths are relative to the symlink.
+
+*absent=skip*::
+Excusable absence:  ignore the entry without error if the named object does not exist.
+
+
+ADD-FILES EXAMPLE
+-----------------
+
+   # Normal file with permissions and contents as they are in the source tree
+   file /etc/portage/package.use
+
+   # Normal file with contents taken from a file outside of the source tree
+   file /etc/vim/vimrc src=/etc/vim/vimrc
+
+   # Normal file with a space in the name wrapped in quote marks
+   file "/usr/lib/python3.7/site-packages/setuptools/script (dev).tmpl"
+
+   # Normal file with same name with backslash escape
+   file /usr/lib/python3.7/site-packages/setuptools/script\ (dev).tmpl
+
+   # Normal file which may be absent from the actual filesystem without causing fatal error
+   file /etc/udev/rules.d/70-persistent-net.rules absent=skip
+
+   # Zero-length normal file
+   file /etc/udev/rules.d/70-persistent-net.rules src=/dev/null
+
+   # All files in directory
+   file /etc/portage/*
+
+   # Filename containing an asterisk
+   file /home/user/some\*name
+
+   # Directory
+   dir /dev
+
+   # Directory in which contents are taken from a separate directory in the source tree
+   dir /etc/portage src=$$stageroot/home/user/portage uid=0:0
+
+   # Device nodes
+   node /dev/sda dev=b8:0 uid=6
+   node /dev/tty7 dev=c4:7 uid=5
+
+   # Symbolic link
+   symlink /usr/portage targ=/var/db/repos/gentoo
+
+   # Filesystem entry of type to be determined at run time
+   tbd /usr/tmp
+
+
+RECIPE-FILE FORMAT
+------------------
+Non-blank, non-comment lines have the format _directive <arguments>_
+
+*root* 'path'::
+Specify a build-root path.  The *-root* command-line switch overrides this.
+
+*profile* 'path'::
+Specify a profile directory to find the @system set.  The *-profile* command-line switch
+overrides this.
+
+*atoms* 'list'::
+Specify atoms in addition to any specified via the command line.
+
+*atomsfile* 'filename'::
+Specify an (additional) file of atoms to add.
+
+*addfiles* 'filename'::
+Specify an (additional) add-files file.
+
+*compress* 'mode'::
+Specify a compression mode.  The *-o* and *-compress* command-line switches override this.
+
+*nobdeps*::
+Omit build dependencies (BDEPEND).
+
+*novdb*::
+Omit the installed-package database
+
+*emptydev*::
+Do not populate `/dev` with static device nodes.
+
+
+RECIPE-FILE EXAMPLE
+-------------------
+
+   nobdeps
+   atoms eix gentoolkit netcat6
+   addfiles /var/lib/layercake/stager/helperFiles
+
+
+EXIT STATUS
+-----------
+[horizontal]
+*0*:: Success
+*1*:: Failure
+

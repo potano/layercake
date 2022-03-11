@@ -15,8 +15,9 @@ import (
 const mainUsageMessage = `Builds Gentoo stage tarballs from working systems
 Usage:
   {myself} -list [system|installed|stage] <options>
-  {myself} -generate <output_path> <options>
+  {myself} -generate <options>
   {myself} -help
+  {myself} -version
 
 Required switches: one of -list, -generate, or -help
   -list <set>        List atoms and/or files in given set:
