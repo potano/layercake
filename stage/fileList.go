@@ -25,7 +25,7 @@ func GenerateFileList(allFiles []vdb.FileInfo, rootDir string) (*FileList, error
 	fl := &FileList{nil, path.Clean(rootDir), map[string]lineInfo{}, map[devIno]int32{}}
 	for _, file := range allFiles {
 		err := fl.addFiles(lineInfo{
-			ltype: file.Type,
+			ltype: vdb.FileType_none,	// force type = "tbd"
 			name: file.Name,
 			skipIfAbsent: true})
 		if err != nil {

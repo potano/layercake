@@ -40,11 +40,7 @@ dir /sys
 dir /tmp
 file /usr/bin/c89
 file /usr/bin/c99
-file /usr/lib/cracklib_dict.hwm
-file /usr/lib/cracklib_dict.pwd
-file /usr/lib/cracklib_dict.pwi
 file /usr/lib64/gconv/gconv-modules.cache
-file /usr/lib64/locale/locale-archive
 dir /usr/local/*
 file /usr/sbin/fix_libtool_files.sh absent=skip
 dir /usr/share/binutils-data/*
