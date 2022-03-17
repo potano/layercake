@@ -280,7 +280,7 @@ func (data stageData) makeTarWriter(fileWriter io.WriteCloser) (io.WriteCloser, 
 	case compression_xz:
 		command = defaults.XzExecutable
 	default:
-		deferred <- nil
+		close(deferred)
 		return fileWriter, deferred
 	}
 
