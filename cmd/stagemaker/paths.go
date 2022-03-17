@@ -259,12 +259,18 @@ func (data stageData) writeTarFile(atomSlice atom.AtomSlice) error {
 		}
 		defer fileWriter.Close()
 	}
-	tarWriter := data.makeTarWriter(fileWriter)
-	return fileList.MakeTar(tarWriter)
+	tarWriter, deferred := data.makeTarWriter(fileWriter)
+	err = fileList.MakeTar(tarWriter)
+	if err != nil {
+		return nil
+	}
+	tarWriter.Close()
+	return <-deferred
 }
 
 
-func (data stageData) makeTarWriter(fileWriter io.Writer) io.Writer {
+func (data stageData) makeTarWriter(fileWriter io.WriteCloser) (io.WriteCloser, chan error) {
+	deferred := make(chan error)
 	var command string
 	switch data.tarCompression {
 	case compression_gzip:
@@ -274,7 +280,8 @@ func (data stageData) makeTarWriter(fileWriter io.Writer) io.Writer {
 	case compression_xz:
 		command = defaults.XzExecutable
 	default:
-		return fileWriter
+		deferred <- nil
+		return fileWriter, deferred
 	}
 
 	rpipe, wpipe := io.Pipe()
@@ -284,7 +291,8 @@ func (data stageData) makeTarWriter(fileWriter io.Writer) io.Writer {
 	go func() {
 		err := cmd.Run()
 		rpipe.CloseWithError(err)
+		deferred <- err
 	}()
-	return wpipe
+	return wpipe, deferred
 }
 

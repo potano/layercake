@@ -24,7 +24,7 @@ func (fl *FileList) MakeTar(writer io.Writer) error {
 			Format: tar.FormatPAX,
 		}
 		if info.xattrs != nil {
-			hdr.PAXRecords = info.xattrs
+			hdr.Xattrs = info.xattrs
 		}
 		switch info.ltype {
 		case vdb.FileType_dir:
