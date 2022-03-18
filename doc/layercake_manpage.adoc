@@ -274,8 +274,8 @@ absolute path.
 
 BINPKGS::
 Name of binary-packages directory for the layer.  Default `packages`.  Must not be an
-absolute path.  Note that Layercake expects the directory to exist only if the configuration
-calls for it.
+absolute path.  Note that Layercake expects the directory to exist only if a layer's
+configuration calls for it.
 
 GENERATED_FILES::
 Name of the directory within the layer directory for generated files for export.  Default

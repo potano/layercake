@@ -13,8 +13,8 @@ generations, the processor-specific USE flags must follow the lowest common deno
 
 Gentoo users are already familiar with using a _chroot_ in the process of setting up a
 Gentoo Linux system.  This ensures that the setup is done cleanly from the initial stage
-tarball.  In the same way, using a _chroot_ on the binary package host allows for
-generating a target configuration which varies significantly from that of the host
+tarball.  In the same way, using a _chroot_ on the binary package host lets the user
+target a configuration which varies significantly from that of the host
 system.  It also opens the possibility of having multiple build roots on the same build
 host, each with its own target configuration.
 
@@ -37,7 +37,7 @@ no need to sync individual trees.
 maintains such symlinks for any supplemental-file directories the user may configure.
 
 - Automatically performs any needed mounts, including `/dev`, `/proc`, `/sys`, and
-shared directories as configured.  Each build root has its own configuration.
+shared directories as configured.  Each build root has its own mount configuration.
 
 - Places each build root with its associated files and directories into its own containing
 directory.
@@ -57,7 +57,7 @@ progress at a time.)
 Layercake has a major feature which can result in substantial savings in build time and disk
 space.  In cases where two or more target systems have mostly the same USE-flag configuration
 and similar architectures, generally only a few packages will have actual USE-flag settings
-which differ between targets.  That means that from one build root to another, most packages
+which differ between targets.  That means that from one build root to another most packages
 turn out to have the same configuration.  By means of OverlayFS mounts, Layercake can mount
 a build root on top of another.  When the user builds or updates packages in the lower
 build root, the installed packages are visible in the upper build root--and a world update
@@ -68,27 +68,27 @@ space requirement in the build host.
 This support for overlay mounts of one build root on top of another gives rise to the name
 _Layercake_.  The _layers_ of this layercake are the build roots plus their associated data.
 At least one layer must be a _base layer_, meaning that it is built up from a stage file in a
-process that varies only somewhat from that described in the Gentoo Handbook.  One or more
+process that is largely the same as described in the Gentoo Handbook.  One or more
 _derived layers_ may be layered on top of a base layer or even another derived layer.
-Layercake places no limit on the height of such a stack of derived layers; since kernel
+Layercake places no limit on the height of such a stack of derived layers.  Since kernel
 version 4.0 or so, neither does OverlayFS.
 
-All the filesystem entries for a layer, which include the build-root directory, a
-configuration file, the OverlayFS directories for the build root, and other directories, are
-all gathered together into a directory called a _layer directory_.  The layer name is the
-name of the layer directory.
+A _layer directory_ is a directory that holds all the filesystem entries for a layer: the
+build root, a configuration file, the OverlayFS directories for the build root, and so on.
+A layer's name is the name of its layer directory.
 
 [NOTE]
-The layering feature is available only when overlay mounts are enabled in the running kernel.
+Overlay mounts work only if the Overlay Filesystem (`CONFIG_OVERLAY_FS`) is enabled in the
+running kernel.
 
 [NOTE]
 Layercake currently has no support for cross compilation.  All build-time dependencies
 must be able to execute natively on the host machine.  This means that the CHOST and
 _-march_ settings in all layers must be compatable with the host hardware.
 
-Layercake and Stagemaker are written in the Go language without dependencies beyond the Go
-standard library.  They build to statically linked executables that include defaults that
-let them operate without configuration files.  link:doc/installation.adoc[Installation from
+Layercake and Stagemaker are written in the Go language and have no dependencies beyond the
+Go standard library.  They build to statically linked executables that include defaults that
+permit operation without configuration files.  link:doc/installation.adoc[Installation from
 source] is almost trivially easy.
 
 
@@ -115,10 +115,10 @@ a USE-flag setup to match an already-deployed target.  Start with this command:
 layercake add rosebud
 --------------------
 
-This generates the layer along with its build-root directory and configuration file.  In
-most cases there is no need to edit the configuration file.  Note the basic calling form of
-Layercake:  the first positional paramter is the name of a command; additional positional
-parameters are arguments.
+This generates the layer along with its build-root directory and `layerconfig` file.  In most
+cases there is no need to link:doc/layercake_layerconfig.adoc[edit the configuration file].
+Note the basic calling form of Layercake:  the first positional paramter is the name of a
+command; additional positional parameters are arguments.
 
 Whereas the Handbook has you create, mount, and chdir to a new root filesystem, use this
 command instead:
@@ -228,6 +228,10 @@ The _layercake shell_ command takes us to the build directory, the _mkdir_ comma
 the directory to hold the stage file, the _layercake mount_ command ensures the needed
 symlink is visible to the web server, and the _stagemaker_ command generates the actual stage
 tarball.
+
+Note that while Stagemaker is designed to operate with an arbitrary root directory and has no
+requirement to be confined to a chroot, nothing keeps it from working in a chroot with
+the *-root /* option.  It is a static executable with no configuration file needed.
 
 ==== On the target host
 

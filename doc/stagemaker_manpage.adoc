@@ -12,40 +12,47 @@ stagemaker - generates Gentoo stage tarballs from installed Gentoo systems
 SYNOPSIS
 --------
 *stagemaker -list* 'list-type' ['options']
+
 *stagemaker -generate* ['options']
+
 *stagemaker -help*
+
 *stagemaker -version*
 
 
 DESCRIPTION
 -----------
-Stagemaker generates Gentoo stage tarballs using the @system set as may be modified via
-USE-flag settings in an installed system.  When used in conjunction with a build-host
-_chroot_ (managed by Layercake or not), the generated stage file makes deployment to new
-target systems much easier to accomplish.
+Stagemaker is a tool that generates Gentoo stage tarballs from packages installed in a
+build root of a binary-build host (managed by Layercake or not).
 
-The problem arises from a motivating factor for using a build host:  pushing the expensive
-work of building packages from the target machine to the build host.  The intended USE-flag
-set typically requires the rebuilding of @system-set packages in order to satisfy the
-dependencies of packages needed on the target.  This makes it so that when starting with a
-generic stage3 tarball on the target system, the user is confronted with a great number of
-unresolved dependencies when Portage attempts to use packages from the binary host.  The
-user may safely force some of these to be ignored, but conflicts which cannot be ignored
-result in package building on the target--the very thing the user wished to avoid.
+Motivation:  Package sets built up on a package host typically include @system-set packages
+that had to be rebuilt to accomodate the target USE-flag set.  This mismatch between the
+binary USE-flag settings and the ones in vanilla stage3 tarballs can make setting up new
+target machines using such tarballs a surprisingly difficult experience:  the _emerge_
+command makes many complaints about dependency mismatches between binary packages and the
+installed set.  The user can try to force _emerge_ to accept mismatches if it can, but in
+may cases packages have to be rebuilt anyway.
 
-Stagemaker removes this friction.  Like the _catalyst_ system which generates stage tarballs,
-Stagemaker resolves packages from the @system set.  Unlike _catalyst_, Stagemaker does not
-consult the Portage tree or initiate the building of packages.  Instead, Stagemaker takes
-its dependency information from the installed package database (_VDB_) and populates the
-tarball with files owned by the packages.
+Enter Stagemaker.  Stagemaker generates stage tarballs from existing build roots, eliminating
+these mismatches.
 
-An important result of this is that files written to the stage tarball reflect any
-modifications the user may have made to them.  Stagemaker allows further degrees of
-customization:
-- inclusion of packages beyond the set of packages of @system plus dependencies
-- inclusion of files, directories, symlinks, and device nodes that would not already be
-installed--either from within the build root or from elsewhere in the host filesystem
-- substitution or exclusion of filesystem entries that would normally be included
+Stagemaker differs in several respects from _catalyst_, the tool which generates official
+stage tarballs.  Whereas _catalyst_ assembles a system from scratch (except for using an
+existing stage tarball for its miscellaneous parts) and builds everything in steps from
+stage 1 to stage 3 or 4, Stagemaker does no emerging at all.  Stagemaker starts from a
+populated build root and its installed-package database ("VDB").  Apart from discovering
+the contents of the @system set, Stagemaker makes no reference to the Portage repo.  It
+obtains all the dependency information it needs from the VDB.
+
+The user may customize the tarball:
+
+- Add package atoms beyond the @system set.  These may include needed tools including
+editors and also blocker atoms.
+- Edit files which belong to packages to be included in the tarball.  Stagemaker writes
+these files to the tarball along with their edits.
+- Add additional files, directores, symlinks, or device nodes.
+- Modify or remove files, directories, symlinks, or device nodes that would ordinarily be
+written.
 
 
 MAIN ACTIONS
@@ -112,8 +119,6 @@ Leave the generated `/dev` directory empty.  Stage tarballs normally populate `/
 static device notes; this switch omits them.  Caution:  omitting these device nodes results
 in an un-bootable system unless these two conditions obtain: 1) the kernel is configured
 for _devtmpfs_, and 2) the boot loader/initramfs does not use *switch_root*(8).
-Select a main configuration file.  This switch takes precedence over the `LAYERCONF`
-environment variable.
 
 *-files*:: 
 Cause *-list* to list files instead of packages.
@@ -128,7 +133,10 @@ the file-compression mode.
 *-compress* 'method'::
 Compress the output tarball.  Overrides any setting inferred via the *-o* switch.
 Methods available: *gzip*, *bzip2*, *xz*, or *none*.  Compression requires that the system
-have the needed compression filter available in the `$PATH`.
+have the needed compression filter available in the `$PATH`. +
+ +
+Switch is required when generating a tarball and the *-o* option is not given or the filename
+extension for the *-o* switch cannot be recognized.
 
 
 ADD-FILES FORMAT
@@ -164,10 +172,10 @@ a symbolic link at the same path in the build root.  Accepts the *targ=* and *ab
 options.
 
 *tbd*::
-Undetermined.  Creates a file, directory, or symlink in the tarball according to the type of
-the existing object in the filesystem.  This accounts for cases where, for example, the user
-substituted a symlink for a regular file.  Files owned by packages are written to the
-tarball using the *tbd* type.  Accepts the *absent=* option.
+Undetermined type.  Creates a file, directory, or symlink in the tarball according to the
+type of the existing object in the filesystem.  This accounts for cases where, for example,
+the user substituted a symlink for a regular file.  Files owned by packages are written to
+the tarball using the *tbd* type.  Accepts the *absent=* option.
 
 *omit*::
 Omit file.  Indicates that the stage tarball is to omit the file, directory, symlink, or
@@ -210,7 +218,7 @@ directory.  Prefix the path with `$$stageroot` to indicate paths relative to the
 Type and major/minor numbers of the device node.  Value is in the format tMAJOR:MINOR, where
 t is either `b` (block) or `c` (character) and MAJOR and MINOR are integers.
 
-*targ=*path::
+*targ=*::
 Target of the symbolic link.  May be relative or absolute.  Absolute paths are relative to
 the root of target system; relative paths are relative to the symlink.
 

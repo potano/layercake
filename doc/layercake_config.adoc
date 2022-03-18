@@ -8,7 +8,8 @@ environment variables or the command line.
 == Default configuration
 
 Base directory: `/var/lib/layercake`::  Root of directory tree on which Layercake operates.
-Contains the Layers and Export directories. +
+Contains the Layers and Export directories and the prototype layer-configuration file for
+base layers. +
 Configuration-file key BASEPATH, environment variable LAYERROOT
 Layers directory: `layers`::  Name of directory relative to the Base directory that contains
 all layer directories. +
@@ -17,8 +18,9 @@ Build directory: `build`::  Name of directory relative to its respective layer d
 acts as the build root for the layer. +
 Configuration-file key BUILDROOT
 Binary-package directory: `packages`::  Name of directory relative to its respective layer
-directory to be bind-mounted to `/var/cache/binpkgs` in the build root.  Layercake generates
-this directory if the layer's configuration specifies that the directory be mounted. +
+directory to be bind-mounted to the binary-packages directory in the build root (generally
+`/var/cache/binpkgs`).  Layercake generates this directory if the layer's configuration
+specifies that the directory be mounted. +
 Configuration-file key BINPKGS
 Generated-files directory: `generated`::  Name of directory relative to its respective layer
 directory to contain files generated from or about build root such as stage tarballs
@@ -68,24 +70,28 @@ CHROOTEXEC = /usr/bin/chroot
 
 Layercake takes its configuration from the first of these sources it encounters:
 
-- file named in the -config command-line switch
+- file named in the *-config* command-line switch
 - file named in the `LAYERCONF` environment variable
 - _.layercake_ file in the user's home directory
-- _layercake.conf_ file in the _etc/_ directory sibling to the directory containing the Layercake
-executable (e.g. if the executable is in `/usr/local/bin/`, Layercake will look for
-`/usr/local/etc/layercake.conf`)
+- _layercake.conf_ file in the _etc/_ directory parallel to the directory containing the
+Layercake executable (e.g. if the executable is `/usr/local/bin/layercake`, Layercake will
+look for `/usr/local/etc/layercake.conf`)
 - defaults contained in the executable
 
 == Configuration-file chaining
 
-It is possible to let one configuration file indicate that another is to be loaded.  An application
-for this is to support multiple Layercake trees available on a single host.  A common part of the
-configuration would be in one file while other separate configuration files would point to it.
-The separate files would specify only one or two values and the common file would contain the rest.
-This works because the first value encountered for a given key takes precedence.
+A configuration file may indicate that another is to be loaded by including the `CONFIGFILE`
+key.  One use for this feature would be for a user who wants to set up a second Layercake
+root for testing.  Assuming that the second root should have the same configuration as the
+first except for the `BASEPATH`, the second configuration file could declare only the proper
+`BASEPATH` and then link to the first configuration file for the rest of the custom settings.
+This works because the first value encountered for any given key takes precedence.
+Layercake detects any file-load loops.
 
-Use the `CONFIGFILE` key to indicate another file to be loaded.  Layercake detects any file-load
-loops.
+--------------
+BASEPATH = /var/lib/secondpath
+CONFIGFILE = /usr/local/etc/layercake.conf
+--------------
 
 == Base-path override
 

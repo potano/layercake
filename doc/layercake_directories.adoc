@@ -10,7 +10,7 @@ _layercake add_ command when making new base layers.
 layers/:: Home of the <<layer-directories,layer directories>>.  Any entry in this directory
 with a legal layer name is considered to be a layer directory.  The name of the directory may
 be set via the LAYERS configuration key. +
-Layer heirarchies are not evident in this directory:  all layer directories are chilren of
+Layer hierarchies are not evident in this directory:  all layer directories are chilren of
 the `layers/` directory. +
 The _layercake remove_ command removes a layer directory only if the build root is empty
 or the user passes the _-files_ switch to force removal.  Removed layer directories remain in

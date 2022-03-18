@@ -1,7 +1,7 @@
 Installation from source
 ========================
 
-This procedure assumes that _make_ and version 14 or later of Go compiler are installed.  A
+This procedure assumes that version 14 or later of Go compiler is installed.  A
 non-privileged user may perform all these steps except for copying the executables to
 public directories.
 
