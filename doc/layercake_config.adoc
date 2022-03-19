@@ -84,12 +84,11 @@ look for `/usr/local/etc/layercake.conf`)
 == Configuration-file chaining
 
 A configuration file may indicate that another is to be loaded by including the `CONFIGFILE`
-key.  One use for this feature would be for a user who wants to set up a second Layercake
-root for testing.  Assuming that the second root should have the same configuration as the
-first except for the `BASEPATH`, the second configuration file could declare only the proper
-`BASEPATH` and then link to the first configuration file for the rest of the custom settings.
-This works because the first value encountered for any given key takes precedence.
-Layercake detects any file-load loops.
+key.  This could be useful in a setup with a second Layercake root for testing.  Assuming that
+the second root should have the same configuration as the first except for the `BASEPATH`, the
+second configuration file could declare only the proper `BASEPATH` and then link to the first
+configuration file for the rest of the custom settings.  This works because the first value
+encountered for any given key takes precedence.  Layercake checks for file-load loops.
 
 --------------
 BASEPATH = /var/lib/secondpath
@@ -99,6 +98,6 @@ CONFIGFILE = /usr/local/etc/layercake.conf
 == Base-path override
 
 The base-path parameter has two additional overrides.  The value of the LAYERROOT environment
-variable overrides any value of the `BASEPATH` key from the configuration files and the -basepath
-command-line switch overrides both.
+variable overrides any value of the `BASEPATH` key from the configuration files and the
+*-basepath* command-line switch overrides both.
 

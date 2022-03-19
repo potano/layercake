@@ -118,8 +118,8 @@ This directive takes three arguments following in the pattern of the *import* di
 - The source of the data to export--thus the symlink target:  a path within the layer
 directory
 - Indication of the directory to hold the symlink.  Must be one of
-* `pass:[$$package_export]` makes an entry in `export/packages`
-* `pass:[$$file_export]` makes an entry in `export/generated`
+* `pass:[$$package_export]` for an entry in `export/packages`
+* `pass:[$$file_export]` for an entry in `export/generated`
 
 In most cases, it is not be necessary to insert explicit *export* directives in the
 `layerconfig` file.  When the `packages` and `generated` directories are present in the

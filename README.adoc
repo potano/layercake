@@ -118,10 +118,9 @@ a USE-flag setup to match an already-deployed target.  Start with this command:
 layercake add rosebud
 --------------------
 
-This generates the layer along with its build-root directory and `layerconfig` file.  In most
-cases there is no need to link:doc/layercake_layerconfig.adoc[edit the configuration file].
-Note the basic calling form of Layercake:  the first positional paramter is the name of a
-command; additional positional parameters are arguments.
+This generates the layer along with its build-root directory and `layerconfig` file.  Note
+the basic calling form of Layercake:  the first positional paramter is the name of a command;
+additional positional parameters are arguments.
 
 Whereas the Handbook has you create, mount, and chdir to a new root filesystem, use this
 command instead:
@@ -130,9 +129,14 @@ command instead:
 layercake shell rosebud
 --------------------
 
-This is the point at which you select, download, and install a stage tarball and set things
-up in in preparation for the chroot.  You can save time by copying Portage files from your
-existing target.  Don't forget to copy `/etc/resolv.conf` from the host system.
+This opens a shell in the build root directory.  Here is where you select, download, and
+install a stage tarball and set things up in in preparation for the chroot.  You can save
+time by copying Portage files from your existing target.  Don't forget to copy
+`/etc/resolv.conf` from the host system.
+
+In most cases, there is no need to edit the link:doc/layercake_layerconfig.adoc[layer's
+configuration file].  If there is, it is easily reached at this point because it is in the
+parent directory of the build root.
 
 When setting up _make.conf_, be sure to add the _buildpkg_ and _binpkg-multi-instance_
 features to the FEATURES variable.  (You may omit _binpkg-multi-instance_ if you will
@@ -250,6 +254,10 @@ or, if you are more adventurous,
 --------------------
 curl http://builder:1000/generated/notebook/stage.tar.gz | tar xzp --xattrs-include='*.*'
 --------------------
+
+The *--xattrs-include* switch is still required for Stagemaker-generated tarballs in order to
+extract file capabilities, but *--numeric-owner* is not because Stagemaker does not store
+user or group names.
 
 Stage tarballs that come from the Gentoo upstream contain vanilla copies of all files in
 `/bin`, `/etc`, `/usr`, and `/var` as generated from the ebuilds in the system set plus

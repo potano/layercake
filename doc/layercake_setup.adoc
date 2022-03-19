@@ -27,7 +27,7 @@ possible but discouraged.
 == 1. Set the Layercake base path
 
 The default configuration uses `/var/lib/layercake` as the base directory.  If this is
-suitable, skip to step 2 to set the base-path directory ready to receive layers.
+suitable, skip to step 2.
 
 There are several ways to specify a different directory, but here we mention only one:  a
 `layercake.conf` configuration file in the `etc` directory that is a sibling to the
@@ -68,7 +68,7 @@ To generate the needed the directories, issue this command:
 layercake init
 ---------
 
-Now the _layercake status_ command should now give the message
+Now the _layercake status_ command should give the message
 
 ---------
 Base directories set up OK at /var/lib/layercake
@@ -79,7 +79,7 @@ Base directories set up OK at /var/lib/layercake
 Every layer directory contains a `layerconfig` file that indicates the mounts and symlinks
 which the Layercake _mount_ and _chroot_ commands create as necessary.  At the time the user
 first issues the _layercake add_ command to generate a base (i.e. non-derived) layer,
-Layercake creates `layerconfig` using the file `default_layercake.skel` in the Base Path
+Layercake creates a `layerconfig` file using `default_layercake.skel` in the Base Path
 directory as a pattern.
 
 It is helpful, therefore, to be sure that `default_layerconfig.skel` is set up for the
