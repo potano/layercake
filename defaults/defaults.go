@@ -1,3 +1,6 @@
+// Copyright © 2017, 2022 Michael Thompson
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package defaults
 
 const Version = "Layercake 2.0.0-beta1"

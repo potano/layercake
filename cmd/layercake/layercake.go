@@ -1,5 +1,7 @@
 // Layercake: manager of layers of build chroots
-// Mike Thompson 5/5/2017
+// Copyright © 2017, 2022 Michael Thompson
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 
 package main
 

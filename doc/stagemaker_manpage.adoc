@@ -1,3 +1,6 @@
+// Copyright © 2022 Michael Thompson
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 STAGEMAKER(1)
 ============
 Michael Thompson <32822313+potano@users.noreply.github.com>
