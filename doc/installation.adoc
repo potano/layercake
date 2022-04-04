@@ -1,46 +1,178 @@
 // Copyright © 2022 Michael Thompson
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-Installation from source
-========================
+== Layercake installation
 
-This procedure assumes that version 14 or later of Go compiler is installed.  A
-non-privileged user may perform all these steps except for copying the executables to
-public directories.
+There are three ways to install Layercake:
 
-- Inside a suitable working directory, clone the Git repository
+* <<ebuild,Add the ebuild to a local overlay>> and install with Portage.
+This is the preferred method for Gentoo build hosts.
+* <<from_source,Install from source>>.
+* Build on another host using one of the above methods and <<copy_binaries,copy the binaries
+to the target machine>>.
 
---------------
-git clone http://github.com/potano/layercake
---------------
 
-- Switch to the `layercake` directory
+[[ebuild]]
+=== Add ebuild and install with Portage
 
---------------
-cd layercake
---------------
+At present the only option for adding the ebuild is to insert it into a custom ebuild
+repository (also referred to as a "local overlay").
+The https://wiki.gentoo.org/wiki/Handbook:Parts/Portage/CustomTree#Defining_a_custom_ebuild_repository[Handbook]
+describes now to do the needed setup.
 
-- Build the Layercake and Stagemaker binaries
+The instructions here assume that the custom repo is called "localrepo" in keeping with the
+example given in the Handbook.
+We also assume a base directory for the ebuild repositories of `/var/db/repos` and a package
+category of "dev-util".
+Create the package directory and switch to it:
 
---------------
+----
+mkdir -p /var/db/repos/localrepo/dev-util/layercake
+cd /var/db/repos/localrepo/dev-util/layercake
+----
+
+Place the ebuild into the directory and update the manifest.
+Here we assume the release is 2.0.0-beta2.
+
+----
+wget https://github.com/potano/layercake/releases/download/2.0.0-beta2/layercake-2.0.0-beta2.ebuild
+ebuild layercake-2.0.0-beta2.ebuild manifest
+----
+
+Now the package is visible to Portage and may be emerged normally.
+For subsequent pre-release versions, simply repeat the steps of downloading the new ebuild
+and updating the manifest.
+
+[NOTE]
+The beta ebuilds of Layercake are not masked or keyworded.
+This reduces the friction of using and testing the package for anyone who already went to the
+trouble of installing the ebuild by hand.
+
+[NOTE]
+Applying the _doc_ USE flag simply rebuilds the man and info pages that are already present
+in the distribution tarball.
+
+
+[[from_source]]
+=== Installation from source
+
+There are several ways to do this depending on the software available on the host machine and
+the needs of the user.
+All assume that version 14 or later of Go compiler is installed.
+Non-privileged users may perform all these steps except for installing to privileged
+directories.
+
+==== Building from a distribution tarball
+
+Inside a suitable working directory download and untar the distribution tarball and switch to
+the layercake base directory.
+This illustration assumes the version is 2.0.0-beta2:
+
+----
+wget https://github.com/potano/layercake/releases/download/2.0.0-beta2/layercake-2.0.0-beta2.tar.gz
+cd layercake-2.0.0-beta2
+----
+
+From this point the method depends on whether the user is the root user and if _make_ is
+available on the host machine.
+
+* The easiest method is available when _make_ is installed and the user is _root_: +
++
+----
+make install
+----
++
+This builds the binaries, installs them to `/usr/bin/` and installs the man and info pages.
+
+* The default _make_ target is suitable for non-privileged users +
++
+----
 make
---------------
+----
++
+This leaves the `layercake` and `stagemaker` binaries in the `bin/` directory and the
+prebuilt documentation files `layercake.1`, `stagemaker.1`, and `layercake.info` in the
+`doc/` directory. The user may then copy them to where they are needed.
 
-If _make_ is not available, run these two commands instead
-
+[[no_make]]
+* When _make_ is not available, run these commands: +
++
 --------------
 go build -o bin/layercake cmd/layercake/...
 go build -o bin/stagemaker cmd/stagemaker/...
 --------------
++
+Again, the user may hand-install the binaries and the documentation from the mentioned
+locations.
 
-By either approach both executable files are written to the `layercake/bin/` directory.
 
-- Copy the binaries to where they may be needed
+==== Building from the Git repo
 
-The root user might install them with these two commands:
+This alternative approach requires more setup if the user wants the man pages and info
+file.  This requires the following packages to be installed beyond Go and Git:
+
+* https://asciidoc.org[asciidoc] (not asciidoctor)
+* http://docbook2x.sourceforge.net[docbook2X] (note that http:// works; https:// does not)
+* https://www.gnu.org/software/texinfo[texinfo]
 
 --------------
-mv ~normaluser/path/layercake/bin/{layercake,stagemaker} /usr/share/bin
-chown root:root /usr/share/bin/{layercake,stagemaker}
+git clone http://github.com/potano/layercake
+cd layercake
+make install
 --------------
+
+The user may use the `install-bin` target instead if the documentation toolchain is not
+available.  Follow the <<no_make,make-not-available>> instructions above if needed.
+
+
+[[copy_binaries]]
+=== Copy binaries to the target host
+
+The `layercake` and `stagemaker` binaries generated on one Linux machine should run without
+difficulty on any other Linux machine with the same architecture (but not recommended on
+kernels older than 4.0).
+
+These are the files of interest as created by the build process and/or as present in the
+distribution tarball.  Paths are relative to the base of the layercake repo.
+
+`bin/layercake`, `bin/stagemaker`::
+Layercake and Stagemaker binaries.
+
+`doc/layercake.1`, `doc/stagemaker.1`::
+Man pages for Layercake and Stagemaker.
+
+`doc/layercake.info`::
+Info file for Layercake.
+
+This command makes a tarball that can be transferred to the target machine:
+
+----
+tar czf layercake.tar.gz --xlate='s/^\./layercake/' bin/* doc/*.{1,info}
+----
+
+After transferring the tarball to the target machine, the root user may extract the files
+and install them to their proper locations.
+
+----
+export PREFIX=
+tar xzf layercake.tar.gz
+chown -R root:root layercake
+mv layercake/bin/{layercake,stagemaker} $PREFIX/usr/local/bin
+mv layercake/doc/*.1 $PREFIX/usr/share/man/man1
+mv layercake/doc/*.info $PREFIX/usr/share/info
+----
+
+[NOTE]
+Set `$PREFIX` if needed for a prefix installation.
+
+Cross-compilation to a target with a differing architecture may work, but has not been
+tested.
+To try this, prefix the _make_ or _go_ commands shown in the build-from-source section
+with the appropriate environment variables set.  For example,
+
+----
+GOARCH=arm GOARM=7 make
+----
+
+After this, transfer and install the files as described above.
 

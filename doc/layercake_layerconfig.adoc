@@ -1,8 +1,7 @@
 // Copyright © 2022 Michael Thompson
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-Layercake layer configuration
-=============================
+== Layercake layer configuration
 
 The `layerconfig` file in each layer directory is a text file of directives, one per line.
 There are three types of directive:
@@ -24,11 +23,11 @@ This directive takes three arguments:
 "rbind" or "proc".
 - The host path of the source of the mount.  This must be either an absolute path or a name
 prefixed by a special symbol:
-* `pass:[$$self/]` for a path relative to the layer's layer directory
-* `pass:[$$base/]` for a path relative to the layer directory of the layer's base layer
+* `$$self/` for a path relative to the layer's layer directory
+* `$$base/` for a path relative to the layer directory of the layer's base layer
 - The mountpoint path within the build root.
 
-(The `pass:[$$]` prefix for these symbols is to allow for forward compatability with
+(The `$$` prefix for these symbols is to allow for forward compatability with
 user-defined variables in a later version of Layercake.)
 
 The file `default_layerconfig.skel` in the Layercake Base directory provides the skeleton
@@ -118,8 +117,8 @@ This directive takes three arguments following in the pattern of the *import* di
 - The source of the data to export--thus the symlink target:  a path within the layer
 directory
 - Indication of the directory to hold the symlink.  Must be one of
-* `pass:[$$package_export]` for an entry in `export/packages`
-* `pass:[$$file_export]` for an entry in `export/generated`
+* `$$package_export` for an entry in `export/packages`
+* `$$file_export` for an entry in `export/generated`
 
 In most cases, it is not be necessary to insert explicit *export* directives in the
 `layerconfig` file.  When the `packages` and `generated` directories are present in the
@@ -132,7 +131,7 @@ export symlink /generated $$file_export
 
 If the user decides to forgo the use of derived layers (possibly because _overlayfs_ mounts
 are unavailable), it is possible to skip the use of the `packages` directory.  In this case,
-remove the import of `pass:[$$base/packages]` and add this *export* directive:
+remove the import of `$$base/packages` and add this *export* directive:
 
 ------------
 export symlink /build/var/cache/binpkgs $$package_exports

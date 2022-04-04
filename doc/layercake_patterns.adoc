@@ -1,105 +1,11 @@
-// Copyright © 2017, 2022 Michael Thompson
+// Copyright © 2022 Michael Thompson
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-= Layercake
-Layercake is a manager for Gentoo binary-package build hosts.
-
-Gentoo's https://wiki.gentoo.org/wiki/Binary_package_guide[Binary package guide] describes
-how to set up a host for building binary packages to be deployed on one or more target
-systems.  This allows the administrator to build once and deploy multiple times.  An added
-benefit is that the target machines remain fully usable during the build process.
-
-A major limitation of the methods presented in the Binary-package guide is that the target
-machines must have the same CHOST, CFLAGS, CXXFLAGS, and USE-flag settings as the host
-which builds the packages.  If the processors on the various machines are of different
-generations, the processor-specific USE flags must follow the lowest common denominator.
-
-Gentoo users are already familiar with using a _chroot_ in the process of setting up a
-Gentoo Linux system.  This ensures that the setup is done cleanly from the initial stage
-tarball.  In the same way, using a _chroot_ on the binary package host lets the user
-target a configuration which varies significantly from that of the host
-system.  It also opens the possibility of having multiple build roots on the same build
-host, each with its own target configuration.
-
-Layercake makes this easy to manage:
-
-- Target systems may be configured differently than the build host.
-
-- Host systems need not use Gentoo Linux; most other Linux distributions should work.
-
-- A build host may contain multiple build roots, each with its own USE-flag and other
-settings.
-
-- A single system-wide Portage tree (plus overlays) may be shared among all build roots;
-no need to sync individual trees.
-
-- Supports similar system-wide sharing of other directories such as downloaded tarballs
-(_distfiles_ directory)
-
-- Maintains symlinks needed for a web server to access binary-package directories.  Also
-maintains such symlinks for any supplemental-file directories the user may configure.
-
-- Automatically performs any needed mounts, including `/dev`, `/proc`, `/sys`, and
-shared directories as configured.  Each build root has its own mount configuration.
-
-- Places each build root with its associated files and directories into its own containing
-directory.
-
-- Includes a separate executable, _stagemaker_, that generates customized stage tarballs
-for setting up new target machines.  Such tarballs, when stored in the supplemental-file
-directories mentioned above, become available for download from the build server.
-
-- Sets the `PS1` environment variable at chroot time to indicate not only that a chroot is
-active but also the name of the build root.
-
-- Allows multiple simultaneous chroot sessions on a build root.  Layercake does mount
-operations only when needed and checks that any existing mounts have the correct endpoints.
-(It is still up to the user to ensure that no more than one _emerge_ operation is in
-progress at a time.)
-
-Layercake has a major feature which can result in substantial savings in build time and disk
-space.  In cases where two or more target systems have mostly the same USE-flag configuration
-and similar architectures, generally only a few packages will have actual USE-flag settings
-which differ between targets.  That means that from one build root to another most packages
-turn out to have the same configuration.  By means of OverlayFS mounts, Layercake can mount
-a build root on top of another.  When the user builds or updates packages in the lower
-build root, the installed packages are visible in the upper build root--and a world update
-in the upper layer would have to build only those packages with different USE flags.  This
-makes it so that there is much less work to do in the upper build root--and a reduced
-space requirement in the build host.
-
-This support for overlay mounts of one build root on top of another gives rise to the name
-_Layercake_.  The _layers_ of this layercake are the build roots plus their associated data.
-At least one layer must be a _base layer_, meaning that it is built up from a stage file in a
-process that is largely the same as described in the Gentoo Handbook.  One or more
-_derived layers_ may be layered on top of a base layer or even another derived layer.
-Layercake places no limit on the height of such a stack of derived layers.  Since kernel
-version 4.0 or so, neither does OverlayFS.
-
-A _layer directory_ is a directory that holds all the filesystem entries for a layer: the
-build root, a configuration file, the OverlayFS directories for the build root, and so on.
-A layer's name is the name of its layer directory.
-
-[NOTE]
-Overlay mounts work only if the Overlay Filesystem (`CONFIG_OVERLAY_FS`) is enabled in the
-running kernel.
-
-[NOTE]
-Layercake currently has no support for cross compilation.  All build-time dependencies
-must be able to execute natively on the host machine.  This means that the CHOST and
-_-march_ settings in all layers must be compatable with the host hardware.
-
-Layercake and Stagemaker are written in the Go language and have no dependencies beyond the
-Go standard library.  They build to statically linked executables that include defaults that
-permit operation without configuration files.
-link:doc/installation.adoc#from_source[Installation from source] is almost trivially easy.
-
-
-== Basic Usage Patterns
+== Basic usage patterns
 
 These steps assume the user has configured and initialized the Layercake installation in
 an operational Gentoo host environment.  Many configurations are possible.  For details
-about the setup, see link:doc/layercake_setup.adoc[Setting up the Layercake environment].
+about the setup, see link:layercake_setup.adoc[Setting up the Layercake environment].
 
 These examples assume further that the build host has the name "builder" and that we have set
 up a web server that listens on port 1000 to serve documents from the Layercake exports
@@ -280,17 +186,4 @@ needed and then do the world update.
 
 Now you may finish the setup as the Gentoo Handbook instructs.
 
-== More information
-
-- The link:doc/layercake_manpage.adoc[Layercake Manpage] details Layercake command invocation.
-
-- link:doc/layercake_directories.adoc[Layercake directory layout]
-
-- link:doc/layercake_config.adoc[Layercake configuration]
-
-- The _stagemaker_ utility lets you customize the stage tarball in helpful ways.  You can add
-files such as helper scripts for setting up the bootloader or rsyncing the Portage tree from
-the build host.  You can also add packages from the build root that are beyond the @system
-set, such as _eix_, _gentoolkit_, and your favorite text editor--with proper dependency
-resolution.  See the link:doc/stagemaker_manpage.adoc[Stagemaker documentation] for details.
 

@@ -102,7 +102,8 @@ func main() {
 	}
 	if showVer {
 		fns.TemplatedExitMessage("Stagemaker, part of {version}", 0,
-			map[string]string{"version": defaults.Version})
+			map[string]string{
+				"version": defaults.VersionStringPrefix + defaults.Version})
 	}
 
 	if (len(listSet) > 0) == generate {

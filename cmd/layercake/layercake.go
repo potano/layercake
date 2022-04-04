@@ -85,7 +85,7 @@ func main() {
 		fns.TemplatedExitMessage(mainUsageMessage, 0, map[string]string{})
 	}
 	if showVersion {
-		fmt.Println(defaults.Version)
+		fmt.Println(defaults.VersionStringPrefix + defaults.Version)
 		os.Exit(0)
 	}
 

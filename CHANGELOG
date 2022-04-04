@@ -1,0 +1,27 @@
+Version 2.0.0-beta2  (04 Apr 2022)
+  * added man pages and info doc
+  * added Gentoo ebuild
+  * added distribution tarball
+  * expanded makefile with new targets for documentation and distribution tarball
+  * documentation edits
+
+Version 2.0.0-beta1  (19 Mar 2022)
+  * new directory layout
+  * new configuration, including per-layer mount configuration
+  * added support for sharing binary-package directories among layers having a common base
+  * adjusted mount behavior for compatability with certain new init systems
+  * automatic export-symlink generation
+  * improved messages and status reporting
+  * new utility to generate stage tarballs (Stagemaker)
+  * added unit tests
+  * refactored code; fixed bugs
+  * switched to Go 1.14 module-file format; still depend only on standard library
+
+Version 1.x
+  * Originally in Bash, later in Go
+
+
+Copyright © 2022 Michael Thompson
+SPDX-License-Identifier: GPL-2.0-or-later
+
+

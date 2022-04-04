@@ -1,0 +1,74 @@
+// Copyright © 2017, 2022 Michael Thompson
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+Layercake User Manual
+=====================
+Michael Thompson <32822313+potano@users.noreply.github.com>
+:doctype: book
+:linkcss!:
+:sectnums!:
+:sectnumlevels: 0
+
+[preface]
+== Introduction
+
+Layercake is a manager for Gentoo binary-package build hosts.
+It retains the usual advantages of build hosts--build once/install many; minimized downtime
+when installing updates--while easing the set-up burdens.
+Among its features:
+
+- Allows multiple build roots on a build host, each with its own USE-flag and other settings.
+
+- Target systems may be configured differently than the build host.
+
+- Host systems need not use Gentoo Linux; most other Linux distributions should work.
+The executable is statically linked and thus independent of the C library in use.
+
+- A single system-wide Portage tree (plus overlays) may be shared among all build roots;
+no need to sync individual trees.
+
+- Supports similar system-wide sharing of other directories such as downloaded tarballs
+(_distfiles_ directory)
+
+- Maintains symlinks needed for a web server to access binary-package directories.  Also
+maintains such symlinks for any supplemental-file directories the user may configure.
+
+- Automatically performs any needed mounts, including `/dev`, `/proc`, `/sys`, and
+shared directories as configured.  Each build root has its own mount configuration.
+
+- Places each build root with its associated files and directories into its own containing
+directory.
+
+- Is packaged with a separate executable, _stagemaker_, that generates customized stage
+tarballs for setting up new target machines.
+Such tarballs, when stored in the supplemental-file directories mentioned above, become
+available for download from the build server.
+(_stagemaker_ is also statically linked.)
+
+- Sets the `PS1` environment variable at chroot time to indicate not only that a chroot is
+active but also the name of the build root.
+
+- Allows multiple simultaneous chroot sessions on a build root.  Layercake does mount
+operations only when needed and checks that any existing mounts have the correct endpoints.
+(It is still up to the user to ensure that no more than one _emerge_ operation is in
+progress at a time.)
+
+- Allows the user to set up build roots on OverlayFS mounts on other build roots.  When the
+build roots in question have similar configurations, this generally results in very
+substantial savings in build time and disk space:  packages that have the same configuration
+between such a pair of build roots need to be built only once when a new version comes out.
+
+- Easy to hand-install if necessary.
+
+//[[usage-patterns]]
+include::layercake_patterns.adoc[]
+
+include::layercake_layerconfig.adoc[]
+
+include::layercake_directories.adoc[]
+
+[[layercake_setup.adoc]]
+include::layercake_setup.adoc[]
+
+include::layercake_config.adoc[]
+
