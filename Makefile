@@ -23,10 +23,8 @@ man: $(addprefix doc/, $(man_files))
 %.1: %_manpage.adoc
 	a2x -f manpage $<
 
-doc/layercake.xml: doc/layercake.adoc
+doc/layercake.info: doc/layercake.adoc
 	asciidoc -b docbook -d book -a data-uri -o doc/layercake.xml doc/layercake.adoc
-
-doc/layercake.info: doc/layercake.xml
 	docbook2x-texi doc/layercake.xml --encoding=UTF-8 --to-stdout >doc/layercake.texi
 	makeinfo --no-split -o doc/layercake.info doc/layercake.texi
 
