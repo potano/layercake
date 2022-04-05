@@ -3,7 +3,6 @@
 
 STAGEMAKER(1)
 ============
-Michael Thompson <32822313+potano@users.noreply.github.com>
 :doctype: manpage
 
 
@@ -319,4 +318,19 @@ EXIT STATUS
 [horizontal]
 *0*:: Success
 *1*:: Failure
+
+
+COPYING
+-------
+Copyright © 2022 Michael Thompson
+
+https://github.com/potano/layercake
+
+SPDX-License-Identifier: GPL-2.0-or-later
+
+
+SEE ALSO
+--------
+layercake(1)
+
 
