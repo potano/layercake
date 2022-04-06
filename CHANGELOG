@@ -1,3 +1,9 @@
+Version 2.0.0-beta3  (05 Apr 2022)
+  * switch Git tags and file names to use Gentoo-atom version indicators instead of semver
+    (2.0.0_beta3, not 2.0.0-beta3)
+  * updated installation-page documentation
+  * update man pages
+
 Version 2.0.0-beta2  (04 Apr 2022)
   * added man pages and info doc
   * added Gentoo ebuild

@@ -3,7 +3,7 @@
 
 package defaults
 
-const Version = "2.0.0-beta2"
+const Version = "2.0.0-beta3"
 const VersionStringPrefix = "Layercake "
 
 const DefaultCommand = "status"

@@ -32,11 +32,11 @@ cd /var/db/repos/localrepo/dev-util/layercake
 ----
 
 Place the ebuild into the directory and update the manifest.
-Here we assume the release is 2.0.0-beta2.
+Here we assume the release is 2.0.0_beta3.
 
 ----
-wget https://github.com/potano/layercake/releases/download/2.0.0-beta2/layercake-2.0.0-beta2.ebuild
-ebuild layercake-2.0.0-beta2.ebuild manifest
+wget https://github.com/potano/layercake/releases/download/2.0.0_beta3/layercake-2.0.0_beta3.ebuild
+ebuild layercake-2.0.0_beta3.ebuild manifest
 ----
 
 Now the package is visible to Portage and may be emerged normally.
@@ -49,8 +49,8 @@ This reduces the friction of using and testing the package for anyone who alread
 trouble of installing the ebuild by hand.
 
 [NOTE]
-Applying the _doc_ USE flag simply rebuilds the man and info pages that are already present
-in the distribution tarball.
+The distribution tarball contains all the man and info pages.  Applying the _doc_ USE flag
+forces a rebuild of these using the needed toolchain pulled in as dependencies.
 
 
 [[from_source]]
@@ -66,11 +66,11 @@ directories.
 
 Inside a suitable working directory download and untar the distribution tarball and switch to
 the layercake base directory.
-This illustration assumes the version is 2.0.0-beta2:
+This illustration assumes the version is 2.0.0_beta3:
 
 ----
-wget https://github.com/potano/layercake/releases/download/2.0.0-beta2/layercake-2.0.0-beta2.tar.gz
-cd layercake-2.0.0-beta2
+wget https://github.com/potano/layercake/releases/download/2.0.0_beta3/layercake-2.0.0_beta3.tar.gz
+cd layercake-2.0.0_beta3
 ----
 
 From this point the method depends on whether the user is the root user and if _make_ is
@@ -112,7 +112,7 @@ This alternative approach requires more setup if the user wants the man pages an
 file.  This requires the following packages to be installed beyond Go and Git:
 
 * https://asciidoc.org[asciidoc] (not asciidoctor)
-* http://docbook2x.sourceforge.net[docbook2X] (note that http:// works; https:// does not)
+* http://docbook2x.sourceforge.net[docbook2X] (note: the link uses http:, not https:)
 * https://www.gnu.org/software/texinfo[texinfo]
 
 --------------
