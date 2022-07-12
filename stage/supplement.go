@@ -17,10 +17,11 @@ import (
 type symlinkRecovery struct {
 	nogoPaths, nogoNames map[string]bool
 	fl *FileList
+	installedFileMap map[string]bool
 }
 
 
-func (fl *FileList) RecoverMissingLinks() error {
+func (fl *FileList) RecoverMissingLinks(installedFileMap map[string]bool) error {
 	nogoPaths := map[string]bool{}
 	nogoNames := map[string]bool{}
 	for _, name := range strings.Fields(defaults.DoNotTraverse) {
@@ -30,7 +31,7 @@ func (fl *FileList) RecoverMissingLinks() error {
 			nogoNames[name] = true
 		}
 	}
-	sr := symlinkRecovery{nogoPaths, nogoNames, fl}
+	sr := symlinkRecovery{nogoPaths, nogoNames, fl, installedFileMap}
 	return sr.addMissingLinks("/")
 }
 
@@ -49,7 +50,12 @@ func (sr symlinkRecovery) addMissingLinks(dir string) error {
 		matchname := path.Join(dir, match)
 		matchpath := path.Join(fl.rootDir, matchname)
 		if fs.IsSymlink(matchpath) {
+			// skip symlinks that were already added to the file set
 			if _, exists := fl.entryMap[matchname]; exists {
+				continue
+			}
+			// skip symlinks present in the VDB that were not already added
+			if _, exists := sr.installedFileMap[matchname]; exists {
 				continue
 			}
 			target, err := fl.ultimateSymlinkTarget(matchname, matchpath)

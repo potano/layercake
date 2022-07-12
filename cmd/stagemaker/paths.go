@@ -175,7 +175,11 @@ func (data stageData) getStageFileList(atoms atom.AtomSlice) (*stage.FileList, e
 	if err != nil {
 		return nil, err
 	}
-	err = fileList.RecoverMissingLinks()
+	installedFileMap, err := data.getInstalledFileMap()
+	if err != nil {
+		return nil, err
+	}
+	err = fileList.RecoverMissingLinks(installedFileMap)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +217,23 @@ func (data stageData) getStageFileList(atoms atom.AtomSlice) (*stage.FileList, e
 
 	fileList.Finalize()
 	return fileList, err
+}
+
+
+func (data *stageData) getInstalledFileMap() (map[string]bool, error) {
+	ssfm := map[string]bool{}
+	for _, grp := range data.installedSet.Atoms {
+		for _, atm := range *grp {
+			files, err := vdb.GetAtomFileInfo(atm)
+			if err != nil {
+				return nil, err
+			}
+			for _, fe := range files {
+				ssfm[fe.Name] = true
+			}
+		}
+	}
+	return ssfm, nil
 }
 
 
