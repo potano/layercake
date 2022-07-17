@@ -14,9 +14,7 @@ const MaxSymlinkChain = 5
 const DoNotTraverse = "/boot /dev /home /media /mnt /proc /run /usr/portage /sys /var/db cache tmp"
 
 const StageMagic =
-`dir /boot
-dir /dev
-file /etc/csh.env
+`file /etc/csh.env
 dir /etc/env.d/*
 file /etc/fstab
 file /etc/group
@@ -32,6 +30,22 @@ file /etc/profile.env
 file /etc/shadow
 file /etc/udev/hwdb.bin
 dir /etc/xml/*
+file /usr/bin/c89
+file /usr/bin/c99
+file /usr/lib64/gconv/gconv-modules.cache
+dir /usr/local/*
+file /usr/sbin/fix_libtool_files.sh absent=skip
+dir /usr/share/binutils-data/*
+dir /usr/share/gcc-data/*
+file /usr/share/info/dir
+file /var/cache/*
+dir /var/lib/gentoo/*
+dir /var/lib/portage/*
+`
+
+const StandardStageDirs =
+`dir /boot
+dir /dev
 dir /home
 dir /media
 dir /mnt
@@ -41,22 +55,11 @@ dir /root
 dir /run
 dir /sys
 dir /tmp
-file /usr/bin/c89
-file /usr/bin/c99
-file /usr/lib64/gconv/gconv-modules.cache
-dir /usr/local/*
-file /usr/sbin/fix_libtool_files.sh absent=skip
-dir /usr/share/binutils-data/*
-dir /usr/share/gcc-data/*
-file /usr/share/info/dir
 dir /usr/src
 tbd /usr/tmp
-file /var/cache/*
 dir /var/db/repos
 dir /var/empty
-dir /var/lib/gentoo/*
-dir /var/lib/portage/*
-tbd /var/lock
+dir /var/lock
 symlink /var/run
 dir /var/spool
 dir /var/tmp
