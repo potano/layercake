@@ -5,18 +5,28 @@ package fs
 
 import (
 	"os"
+	"path"
 	"strings"
+	"strconv"
 	"syscall"
 )
 
 const (
-	UseMask_cwd = 1 << iota
-	UseMask_exec
-	UseMask_open
-	UseMask_root
+	UsedAs_root = iota
+	UsedAs_cwd
+	UsedAs_exec
+	UsedAs_open
 )
 
-func FindLayersInUse(prefix string) (map[string]int, error) {
+type InUseProc struct {
+	Pid, UsedAs uint
+	ProgName, File string
+}
+
+type InUseLayerMap map[string][]InUseProc
+
+
+func FindLayerUsers(prefix string) (InUseLayerMap, error) {
 	if len(prefix) > 1 && prefix[len(prefix)-1] != '/' {
 		prefix += "/"
 	}
@@ -32,19 +42,37 @@ func FindLayersInUse(prefix string) (map[string]int, error) {
 	if nil == lst {
 		return nil, err
 	}
-	out := map[string]int{}
+	out := InUseLayerMap{}
 	for _, entry := range lst {
-		proc := entry.Name()
-		if !entry.IsDir() || !isNumeric(proc) {
+		pidString := entry.Name()
+		if !entry.IsDir() || !isNumeric(pidString) {
 			continue
 		}
-		proc = "/proc/" + proc + "/"
-		buf := make([]byte, 256)
-		for _, item := range []struct{path string; mask int}{
-			{"cwd", UseMask_cwd}, {"root", UseMask_root}, {"exe", UseMask_exec}} {
+		pid, _ := strconv.ParseUint(pidString, 10, 64)
+		proc := "/proc/" + pidString + "/"
+		progName, err := Readlink(proc + "exe")
+		if err != nil {
+			if err != syscall.ENOENT {
+				return nil, err
+			}
+			progName = "[anon]"
+		} else {
+			progName = path.Base(progName)
+		}
+		for _, item := range []struct{path string; mask uint}{
+			{"cwd", UsedAs_cwd}, {"root", UsedAs_root}, {"exe", UsedAs_exec}} {
 			path := proc + item.path
-			if lvlname, ok := isLinkToLevel(buf, prefix, path); ok {
-				out[lvlname] |= item.mask
+			if layername, tail, ok := isLinkToLayer(prefix, path); ok {
+				entry := InUseProc{
+					Pid: uint(pid),
+					UsedAs: item.mask,
+					ProgName: progName,
+					File: tail}
+				if _, exists := out[layername]; exists {
+					out[layername] = append(out[layername], entry)
+				} else {
+					out[layername] = []InUseProc{entry}
+				}
 			}
 		}
 		if !IsDir(proc + "fd") {
@@ -64,8 +92,17 @@ func FindLayersInUse(prefix string) (map[string]int, error) {
 		}
 		for _, entry := range items {
 			name := proc + "fd/" + entry.Name()
-			if lvlname, ok := isLinkToLevel(buf, prefix, name); ok {
-				out[lvlname] |= UseMask_open
+			if layername, tail, ok := isLinkToLayer(prefix, name); ok {
+				entry := InUseProc{
+					Pid: uint(pid),
+					UsedAs: UsedAs_open,
+					ProgName: progName,
+					File: tail}
+				if _, exists := out[layername]; exists {
+					out[layername] = append(out[layername], entry)
+				} else {
+					out[layername] = []InUseProc{entry}
+				}
 			}
 		}
 	}
@@ -83,23 +120,27 @@ func isNumeric(str string) bool {
 }
 
 
-func isLinkToLevel(buf []byte, prefix, path string) (lvlname string, have bool) {
-	if !IsSymlink(path) {
-		return
-	}
-	n, err := syscall.Readlink(path, buf)
+func isLinkToLayer(prefix, path string) (layername, tail string, have bool) {
+	target, err := Readlink(path)
 	if nil != err {
 		return
 	}
-	target := string(buf[:n])
-	if len(target) >= len(prefix) && target[:len(prefix)] == prefix {
-		lvlname = target[len(prefix):]
+	if SameDirectoryOrDescendant(target, prefix) {
+		layername = target[len(prefix):]
 		have = true
-		p := strings.Index(lvlname, "/")
+		p := strings.Index(layername, "/")
 		if p > -1 {
-			lvlname = lvlname[:p]
+			tail = layername[p+1:]
+			layername = layername[:p]
 		}
 	}
 	return
+}
+
+
+func SameDirectoryOrDescendant(path, prefix string) bool {
+	lenPrefix := len(prefix)
+	return strings.HasPrefix(path, prefix) &&
+		(prefix[lenPrefix-1] == '/' || len(path) == lenPrefix || path[lenPrefix] == '/')
 }
 

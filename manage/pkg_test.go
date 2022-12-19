@@ -495,7 +495,7 @@ func compareMounts(want, have []*fs.MountType) []string {
 
 type wantedLayerData struct {
 	Name, Base string
-	Busy, Overlain, Chroot bool
+	MountBusy, NonMountBusy, Overlain, Chroot bool
 	Messages []string
 }
 
@@ -513,8 +513,13 @@ phase string) {
 		if l.Base != want.Base {
 			t.Fatalf("%s: layer %s has unexpected base %s", phase, l.Name, l.Base)
 		}
-		if l.Busy != want.Busy {
-			t.Fatalf("%s, layer %s has unexpected Busy=%t", phase, l.Name, l.Busy)
+		if l.MountBusy != want.MountBusy {
+			t.Fatalf("%s, layer %s has unexpected MountBusy=%t", phase, l.Name,
+				l.MountBusy)
+		}
+		if l.NonMountBusy != want.NonMountBusy {
+			t.Fatalf("%s, layer %s has unexpected NonMountBusy=%t", phase, l.Name,
+				l.NonMountBusy)
 		}
 		if l.Overlain != want.Overlain {
 			t.Fatalf("%s, layer %s has unexpected Overlain=%t", phase, l.Name,
@@ -523,7 +528,7 @@ phase string) {
 		if l.Chroot != want.Chroot {
 			t.Fatalf("%s, layer %s has unexpected Chroot=%t", phase, l.Name, l.Chroot)
 		}
-		state := layers.DescribeState(l, true)
+		state := layers.DescribeMounts(l, true)
 		if !stringSlicesEqual(want.Messages, state) {
 			t.Fatalf("%s, layer %s has unexpected message(s)\n  %s", phase, l.Name,
 				strings.Join(state, "\n  "))
@@ -570,8 +575,11 @@ func checkSameLayerinfo(t *testing.T, want Layerinfo, have *Layerinfo, phase str
 	if !stringSlicesEqual(want.Messages, have.Messages) {
 		problems.add("Messages:\n  " + strings.Join(have.Messages, "\n  "))
 	}
-	if have.Busy != want.Busy {
-		problems.addf("Busy = %t", have.Busy)
+	if have.MountBusy != want.MountBusy {
+		problems.addf("MountBusy = %t", have.MountBusy)
+	}
+	if have.NonMountBusy != want.NonMountBusy {
+		problems.addf("NonMountBusy = %t", have.NonMountBusy)
 	}
 	if have.Overlain != want.Overlain {
 		problems.addf("Overlain = %t", have.Overlain)
@@ -588,7 +596,7 @@ func checkSameLayerinfo(t *testing.T, want Layerinfo, have *Layerinfo, phase str
 	}
 }
 
-func getLayers(t *testing.T, cfg *config.ConfigType, opts *config.Opts, inuse map[string]int,
+func getLayers(t *testing.T, cfg *config.ConfigType, opts *config.Opts, inuse fs.InUseLayerMap,
 phase string) *Layerdefs {
 	layers, err := FindLayers(cfg, opts)
 	if err != nil {
@@ -1034,7 +1042,7 @@ export symlink /var/cache/binpkgs $$package_export
 			t.Fatal(err.Error())
 		}
 		opts := &config.Opts{}
-		inuse := map[string]int{}
+		inuse := fs.InUseLayerMap{}
 
 		td.WriteFile("/var/lib/layercake/default_layerconfig.skel", basic_layerdef)
 
@@ -1053,7 +1061,7 @@ export symlink /var/cache/binpkgs $$package_export
 		td.CheckAgainstWantedTree(t, "after adding base0")
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"not yet populated"}},
+			{"base0", "", false, false, false, false, []string{"not yet populated"}},
 		}, testName)
 
 		testName = "remove just-added base0"
@@ -1080,7 +1088,7 @@ export symlink /var/cache/binpkgs $$package_export
 		td.CheckAgainstWantedTree(t, "after adding baseonly")
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"baseonly", "", false, false, false, []string{"not yet populated"}},
+			{"baseonly", "", false, false, false, false, []string{"not yet populated"}},
 		}, testName)
 
 		testName = "remove just-added baseonly"
@@ -1107,7 +1115,7 @@ export symlink /var/cache/binpkgs $$package_export
 		td.CheckAgainstWantedTree(t, testName)
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"not yet populated"}},
+			{"base0", "", false, false, false, false, []string{"not yet populated"}},
 		}, testName)
 
 
@@ -1126,8 +1134,8 @@ export symlink /var/cache/binpkgs $$package_export
 		td.CheckAgainstWantedTree(t, testName)
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"base0", "", false, false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
 		}, testName)
 
 
@@ -1145,9 +1153,10 @@ export symlink /var/cache/binpkgs $$package_export
 		td.CheckAgainstWantedTree(t, testName)
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+			{"base0", "", false, false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, false,
+				[]string{"not yet populated"}},
 		}, testName)
 
 
@@ -1184,10 +1193,12 @@ export symlink /var/cache/binpkgs $$package_export
 		td.CheckAgainstWantedTree(t, testName)
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"not yet populated"}},
-			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+			{"base0", "", false, false, false, false, []string{"not yet populated"}},
+			{"derived0", "base0", false, false, false, false,
+				[]string{"not yet populated"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, false,
+				[]string{"not yet populated"}},
 		}, testName)
 
 
@@ -1199,15 +1210,18 @@ export symlink /var/cache/binpkgs $$package_export
 		}
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"build directories set up",
+			{"base0", "", false, false, false, false,
+				[]string{"build directories set up",
 				"missing mountpoint: /dev", "missing mountpoint: /proc",
 				"missing mountpoint: /sys",
 				"missing mountpoint: /var/db/repos",
 				"missing mountpoint: /var/cache/distfiles",
 				"missing mountpoint: /var/cache/binpkgs"}},
-			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+			{"derived0", "base0", false, false, false, false,
+				[]string{"not yet populated"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, false,
+				[]string{"not yet populated"}},
 		}, testName)
 
 
@@ -1218,13 +1232,16 @@ export symlink /var/cache/binpkgs $$package_export
 		}
 		layers = getLayers(t, cfg, opts, inuse, "added derived0")
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"build directories set up",
+			{"base0", "", false, false, false, false,
+				[]string{"build directories set up",
 				"missing mountpoint: /var/db/repos",
 				"missing mountpoint: /var/cache/distfiles",
 				"missing mountpoint: /var/cache/binpkgs"}},
-			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+			{"derived0", "base0", false, false, false, false,
+				[]string{"not yet populated"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, false,
+				[]string{"not yet populated"}},
 		}, testName)
 
 
@@ -1236,12 +1253,15 @@ export symlink /var/cache/binpkgs $$package_export
 		}
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"build directories set up",
+			{"base0", "", false, false, false, false, []string{
+				"build directories set up",
 				"missing host directory: " + td.Path("/var/db/repos"),
 				"missing host directory: " + td.Path("/var/cache/distfiles")}},
-			{"derived0", "base0", false, false, false, []string{"not yet populated"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+			{"derived0", "base0", false, false, false, false,
+				[]string{"not yet populated"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, false,
+				[]string{"not yet populated"}},
 		}, testName)
 
 
@@ -1252,10 +1272,11 @@ export symlink /var/cache/binpkgs $$package_export
 		}
 		layers = getLayers(t, cfg, opts, inuse, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"mountable"}},
-			{"derived0", "base0", false, false, false, []string{"mountable"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+			{"base0", "", false, false, false, false, []string{"mountable"}},
+			{"derived0", "base0", false, false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, false,
+				[]string{"not yet populated"}},
 		}, testName)
 
 
@@ -1288,7 +1309,7 @@ export symlink /var/cache/binpkgs $$package_export
 		}()
 
 		opts := &config.Opts{}
-		inuse_all_idle := map[string]int{}
+		inuse_all_idle := fs.InUseLayerMap{}
 
 
 		testName := "mount base0"
@@ -1298,12 +1319,14 @@ export symlink /var/cache/binpkgs $$package_export
 			t.Fatalf("%s: %s", testName, err)
 		}
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"mounted and ready",
+			{"base0", "", false, false, false, false, []string{
+				"mounted and ready; can unmount",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
-			{"derived0", "base0", false, false, false, []string{"mountable"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+			{"derived0", "base0", false, false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, false,
+				[]string{"not yet populated"}},
 		}, testName)
 
 
@@ -1318,15 +1341,18 @@ export symlink /var/cache/binpkgs $$package_export
 			"var/cache/binpkgs var/cache/distfiles")
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, true, false, []string{"mounted and ready",
+			{"base0", "", false, false, true, false, []string{
+				"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
-			{"derived0", "base0", false, false, false, []string{"mounted and ready",
+			{"derived0", "base0", false, false, false, false, []string{
+				"mounted and ready; can unmount",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
-			{"derived1", "base1", false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
+			{"derived1", "base1", false, false, false, false,
+				[]string{"not yet populated"}},
 		}, testName)
 
 
@@ -1351,15 +1377,16 @@ export symlink /var/cache/binpkgs $$package_export
 		}
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, true, false, []string{"mounted and ready",
+			{"base0", "", false, false, true, false, []string{"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
-			{"derived0", "base0", false, false, false, []string{"mounted and ready",
+			{"derived0", "base0", false, false, false, false, []string{
+				"mounted and ready; can unmount",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
-			{"derived1", "derived0", false, false, false, []string{"mountable"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"derived1", "derived0", false, false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
 		}, testName)
 
 
@@ -1374,18 +1401,20 @@ export symlink /var/cache/binpkgs $$package_export
 			"var/cache/binpkgs var/cache/distfiles")
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, true, false, []string{"mounted and ready",
+			{"base0", "", false, false, true, false, []string{"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
-			{"derived0", "base0", false, true, false, []string{"mounted and ready",
+			{"derived0", "base0", false, false, true, false, []string{
+				"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
-			{"derived1", "derived0", false, false, false, []string{"mounted and ready",
+			{"derived1", "derived0", false, false, false, false, []string{
+				"mounted and ready; can unmount",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /usr/portage, /var/cache/distfiles",
 				"  overlayfs"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
 		}, testName)
 
 
@@ -1412,10 +1441,10 @@ export symlink /var/cache/binpkgs $$package_export
 		}
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"mountable"}},
-			{"derived0", "base0", false, false, false, []string{"mountable"}},
-			{"derived1", "derived0", false, false, false, []string{"mountable"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"base0", "", false, false, false, false, []string{"mountable"}},
+			{"derived0", "base0", false, false, false, false, []string{"mountable"}},
+			{"derived1", "derived0", false, false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
 		}, testName)
 
 
@@ -1430,18 +1459,20 @@ export symlink /var/cache/binpkgs $$package_export
 			"var/cache/binpkgs var/cache/distfiles")
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, true, false, []string{"mounted and ready",
+			{"base0", "", false, false, true, false, []string{"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
-			{"derived0", "base0", false, true, false, []string{"mounted and ready",
+			{"derived0", "base0", false, false, true, false, []string{
+				"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
-			{"derived1", "derived0", false, false, false, []string{"mounted and ready",
+			{"derived1", "derived0", false, false, false, false, []string{
+				"mounted and ready; can unmount",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /usr/portage, /var/cache/distfiles",
 				"  overlayfs"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
 		}, testName)
 
 
@@ -1470,10 +1501,10 @@ export symlink /var/cache/binpkgs $$package_export
 		}
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, false, []string{"mountable"}},
-			{"derived0", "base0", false, false, false, []string{"mountable"}},
-			{"derived1", "derived0", false, false, false, []string{"mountable"}},
-			{"base1", "", false, false, false, []string{"not yet populated"}},
+			{"base0", "", false, false, false, false, []string{"mountable"}},
+			{"derived0", "base0", false, false, false, false, []string{"mountable"}},
+			{"derived1", "derived0", false, false, false, false, []string{"mountable"}},
+			{"base1", "", false, false, false, false, []string{"not yet populated"}},
 		}, testName)
 		msg := readMessage()
 		if msg != "Layer base1 was not mounted\n" +

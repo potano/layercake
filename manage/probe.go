@@ -128,7 +128,7 @@ func (ld *Layerdefs) refreshMountInfo() error {
 }
 
 
-func (ld *Layerdefs) ProbeAllLayerstate(inuse map[string]int) error {
+func (ld *Layerdefs) ProbeAllLayerstate(inuse fs.InUseLayerMap) error {
 	err := ld.refreshMountInfo()
 	if err != nil {
 		return err
@@ -163,11 +163,21 @@ func (ld *Layerdefs) ProbeAllLayerstate(inuse map[string]int) error {
 			continue
 		}
 
-		mask := inuse[name]
-		if mask > 0 {
-			layer.Busy = true
-			if (mask & fs.UseMask_root) > 0 {
-				layer.Chroot = true
+		users := inuse[name]
+		if users != nil {
+			mountdirs := []string{ld.cfg.LayerBuildRoot, ld.cfg.LayerOvfsWorkdir,
+				ld.cfg.LayerOvfsUpperdir}
+			for _, user := range users {
+				for _, mpath := range mountdirs {
+					if fs.SameDirectoryOrDescendant(user.File, mpath) {
+						layer.MountBusy = true
+					} else {
+						layer.NonMountBusy = true
+					}
+					if user.UsedAs == fs.UsedAs_root {
+						layer.Chroot = true
+					}
+				}
 			}
 		}
 

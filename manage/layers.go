@@ -61,7 +61,7 @@ type Layerinfo struct {
 	LayerPath string
 	State int
 	Messages []string
-	Busy, Overlain, Chroot bool
+	MountBusy, NonMountBusy, Overlain, Chroot bool
 	Mounts []*fs.MountType
 }
 
@@ -81,17 +81,18 @@ func (ld *Layerdefs) Layer(name string) *Layerinfo {
 }
 
 
-func (ld *Layerdefs) DescribeState(li *Layerinfo, detailed bool) []string {
-	out := []string{layerstateDescriptions[li.State]}
+func (ld *Layerdefs) DescribeMounts(li *Layerinfo, detailed bool) []string {
+	desc := layerstateDescriptions[li.State]
+	if len(li.Mounts) > 0 && !li.MountBusy && !li.Overlain {
+		desc += "; can unmount"
+	}
+	out := []string{desc}
 	if detailed {
 		out = append(out, li.Messages...)
 		mnts := ld.describeMounts(li, "  ")
 		if len(mnts) > 0 {
 			out = append(out, "Current mounts:")
 			out = append(out, mnts...)
-		}
-		if li.Busy && !li.Chroot {
-			out = append(out, "layer is in use")
 		}
 	}
 	return out
@@ -231,13 +232,19 @@ func (layer *Layerinfo) errorIfError() error {
 }
 
 
-func (layer *Layerinfo) errorIfBusy(operation string, testIfMounted bool) error {
+func (layer *Layerinfo) errorIfBusy(operation string, alteringLayer bool) error {
 	var msg []string
-	if testIfMounted && len(layer.Mounts) > 0 {
-		msg = []string{"is mounted"}
-	}
-	if layer.Busy {
-		msg = append(msg, "has active users")
+	if alteringLayer {
+		if len(layer.Mounts) > 0 {
+			msg = append(msg, "is mounted")
+		}
+		if layer.MountBusy || layer.NonMountBusy {
+			msg = append(msg, "has active users")
+		}
+	} else {
+		if layer.MountBusy {
+			msg = append(msg, "has active users")
+		}
 	}
 	if layer.Overlain {
 		msg = append(msg, "is in use by overlay")

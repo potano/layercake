@@ -162,13 +162,13 @@ func (ci commandInfo) failOnMissingBaseSetup() {
 }
 
 
-func (ci commandInfo) getLayers() *manage.Layerdefs {
+func (ci commandInfo) getLayers() (*manage.Layerdefs, fs.InUseLayerMap) {
 	ci.failOnMissingBaseSetup()
 	layers, err := manage.FindLayers(ci.cfg, ci.cab.Opts)
 	if nil != err {
 		fatal(err.Error())
 	}
-	inuse, err := fs.FindLayersInUse(ci.cfg.Layerdirs)
+	inuse, err := fs.FindLayerUsers(ci.cfg.Layerdirs)
 	if nil != err {
 		fatal("%s finding users in buildroot", err)
 	}
@@ -176,7 +176,7 @@ func (ci commandInfo) getLayers() *manage.Layerdefs {
 	if nil != err {
 		fatal("%s probing layers", err)
 	}
-	return layers
+	return layers, inuse
 }
 
 
@@ -204,7 +204,7 @@ func statusCommand(cmdinfo commandInfo) {
 	}
 
 	name := args[0]
-	layers := cmdinfo.getLayers()
+	layers, inuse := cmdinfo.getLayers()
 	layer := layers.Layer(name)
 	if layer == nil {
 		fatal("Layer %s not found", name)
@@ -214,8 +214,21 @@ func statusCommand(cmdinfo commandInfo) {
 	} else {
 		fmt.Printf("Base layer: %s\n", name)
 	}
-	info := layers.DescribeState(layer, true)
+	info := layers.DescribeMounts(layer, true)
 	fmt.Printf("State: %s\n", info[0])
+	var usage string
+	if layer.Chroot {
+		usage = "active chroot"
+	} else if layer.MountBusy {
+		usage = "busy"
+	} else if layer.Overlain {
+		usage = "overlain"
+	} else if layer.NonMountBusy {
+		usage = "busy; may be unmounted"
+	} else {
+		usage = "idle"
+	}
+	fmt.Println("Usage: " + usage)
 
 	if len(info) > 1 {
 		fmt.Println("")
@@ -223,12 +236,19 @@ func statusCommand(cmdinfo commandInfo) {
 			fmt.Println(line)
 		}
 	}
+	if procs := inuse[name]; procs != nil {
+		fmt.Println("\nProcesses active in this layer")
+		tbl := fns.NewAdaptiveTable(" l    l")
+		tbl.SetLabels("Command (PID)", "Details")
+		layers.DescribeUsers(procs, tbl)
+		tbl.Flush()
+	}
 }
 
 
 func listCommand(cmdinfo commandInfo) {
 	cmdinfo.getArgs(0, 0)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	llist := layers.Layers()
 	if len(llist) < 1 {
 		fmt.Println("No layers found")
@@ -246,11 +266,11 @@ func listCommand(cmdinfo commandInfo) {
 		}
 		if layer.Chroot {
 			more = append(more, "chroot")
-		} else if layer.Busy || layer.Overlain {
+		} else if layer.MountBusy || layer.NonMountBusy || layer.Overlain {
 			more = append(more, "busy")
 		}
 		tbl.Print(layer.Name, basespec, strings.Join(more, ", "),
-		layers.DescribeState(layer, cmdinfo.cab.Opts.Verbose))
+			layers.DescribeMounts(layer, cmdinfo.cab.Opts.Verbose))
 	}
 	tbl.Flush()
 }
@@ -260,7 +280,7 @@ func addCommand(cmdinfo commandInfo) {
 	var configFile string
 	cmdinfo.cab.AddSwitch("configfile", &configFile)
 	args := cmdinfo.getArgs(1, 2)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.AddLayer(args[0], args[1], configFile)
 	if nil != err {
 		fatal(err.Error())
@@ -272,7 +292,7 @@ func removeCommand(cmdinfo commandInfo) {
 	var removeFiles bool
 	cmdinfo.cab.AddSwitch("files", &removeFiles)
 	args := cmdinfo.getArgs(1, 1)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.RemoveLayer(args[0], removeFiles)
 	if nil != err {
 		fatal(err.Error())
@@ -282,7 +302,7 @@ func removeCommand(cmdinfo commandInfo) {
 
 func renameCommand(cmdinfo commandInfo) {
 	args := cmdinfo.getArgs(2, 2)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.RenameLayer(args[0], args[1])
 	if nil != err {
 		fatal(err.Error())
@@ -292,7 +312,7 @@ func renameCommand(cmdinfo commandInfo) {
 
 func rebaseCommand(cmdinfo commandInfo) {
 	args := cmdinfo.getArgs(1, 2)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.RebaseLayer(args[0], args[1])
 	if nil != err {
 		fatal(err.Error())
@@ -302,7 +322,7 @@ func rebaseCommand(cmdinfo commandInfo) {
 
 func shellCommand(cmdinfo commandInfo) {
 	args := cmdinfo.getArgs(1, 1)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.Shell(args[0])
 	if nil != err {
 		fatal(err.Error())
@@ -312,7 +332,7 @@ func shellCommand(cmdinfo commandInfo) {
 
 func mkdirsCommand(cmdinfo commandInfo) {
 	args := cmdinfo.getArgs(1, 1)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.Makedirs(args[0])
 	if nil != err {
 		fatal(err.Error())
@@ -322,7 +342,7 @@ func mkdirsCommand(cmdinfo commandInfo) {
 
 func mountCommand(cmdinfo commandInfo) {
 	args := cmdinfo.getArgs(1, 1)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.Mount(args[0])
 	if nil != err {
 		fatal(err.Error())
@@ -334,7 +354,7 @@ func unmountCommand(cmdinfo commandInfo) {
 	var all bool
 	cmdinfo.cab.AddSwitch("all", &all)
 	args := cmdinfo.getArgs(0, 1)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.Unmount(args[0], all)
 	if nil != err {
 		fatal(err.Error())
@@ -344,7 +364,7 @@ func unmountCommand(cmdinfo commandInfo) {
 
 func chrootCommand(cmdinfo commandInfo) {
 	args := cmdinfo.getArgs(1, 1)
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.Chroot(args[0])
 	if nil != err {
 		fatal(err.Error())
@@ -353,7 +373,7 @@ func chrootCommand(cmdinfo commandInfo) {
 
 
 func shakeCommand(cmdinfo commandInfo) {
-	layers := cmdinfo.getLayers()
+	layers, _ := cmdinfo.getLayers()
 	err := layers.Shake()
 	if nil != err {
 		fatal(err.Error())
