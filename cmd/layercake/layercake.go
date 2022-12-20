@@ -202,6 +202,7 @@ func statusCommand(cmdinfo commandInfo) {
 		}
 		return
 	}
+	warnIfNotRoot()
 
 	name := args[0]
 	layers, inuse := cmdinfo.getLayers()
@@ -254,6 +255,7 @@ func listCommand(cmdinfo commandInfo) {
 		fmt.Println("No layers found")
 		return
 	}
+	warnIfNotRoot()
 	tbl := fns.NewAdaptiveTable("   l    l   c   l")
 	tbl.SetLabels("Layer", "Parent", "Usage", "Setup State")
 	for _, layer := range llist {
@@ -383,6 +385,12 @@ func shakeCommand(cmdinfo commandInfo) {
 
 
 
+
+func warnIfNotRoot() {
+	if !fs.UserIsRoot() {
+		fmt.Println("Caution: user is not root--displayed usage status may be inaccurate")
+	}
+}
 
 
 func fatal(base string, params...interface{}) {

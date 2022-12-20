@@ -52,6 +52,9 @@ func FindLayerUsers(prefix string) (InUseLayerMap, error) {
 		proc := "/proc/" + pidString + "/"
 		progName, err := Readlink(proc + "exe")
 		if err != nil {
+			if err == syscall.EACCES {
+				continue
+			}
 			if err != syscall.ENOENT {
 				return nil, err
 			}
