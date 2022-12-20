@@ -35,6 +35,7 @@ const (
 	Layerstate_mountable
 	Layerstate_partialmount
 	Layerstate_mounted
+	Layerstate_mounted_busy
 )
 
 var layerstateDescriptions []string = []string{
@@ -46,6 +47,7 @@ var layerstateDescriptions []string = []string{
 	"mountable",
 	"partially mounted",
 	"mounted and ready",
+	"mounted; cannot be unmounted",
 }
 
 
@@ -82,11 +84,7 @@ func (ld *Layerdefs) Layer(name string) *Layerinfo {
 
 
 func (ld *Layerdefs) DescribeMounts(li *Layerinfo, detailed bool) []string {
-	desc := layerstateDescriptions[li.State]
-	if len(li.Mounts) > 0 && !li.MountBusy && !li.Overlain {
-		desc += "; can unmount"
-	}
-	out := []string{desc}
+	out := []string{layerstateDescriptions[li.State]}
 	if detailed {
 		out = append(out, li.Messages...)
 		mnts := ld.describeMounts(li, "  ")
@@ -96,6 +94,21 @@ func (ld *Layerdefs) DescribeMounts(li *Layerinfo, detailed bool) []string {
 		}
 	}
 	return out
+}
+
+
+func (li *Layerinfo) DescribeUsage() string {
+	if li.Chroot {
+		return "active chroot"
+	} else if li.MountBusy {
+		return "busy"
+	} else if li.Overlain {
+		return "overlain"
+	} else if li.NonMountBusy {
+		return "busy; may be unmounted"
+	} else {
+		return "idle"
+	}
 }
 
 

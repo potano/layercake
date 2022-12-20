@@ -217,19 +217,7 @@ func statusCommand(cmdinfo commandInfo) {
 	}
 	info := layers.DescribeMounts(layer, true)
 	fmt.Printf("State: %s\n", info[0])
-	var usage string
-	if layer.Chroot {
-		usage = "active chroot"
-	} else if layer.MountBusy {
-		usage = "busy"
-	} else if layer.Overlain {
-		usage = "overlain"
-	} else if layer.NonMountBusy {
-		usage = "busy; may be unmounted"
-	} else {
-		usage = "idle"
-	}
-	fmt.Println("Usage: " + usage)
+	fmt.Println("Usage: " + layer.DescribeUsage())
 
 	if len(info) > 1 {
 		fmt.Println("")

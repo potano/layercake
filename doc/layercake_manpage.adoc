@@ -61,6 +61,8 @@ mountable::: all needed directories are in place; the layer is mountable
 partially mounted::: all needed directories are in place but at least one configured
 mountpoint is not mounted
 mounted and ready::: layer is ready for use and is ready to be chrooted
+mounted; cannot be unmounted::: layer is ready for use and can be chrooted, but cannot
+be unmounted because the working directories are in use
 
 *list* [-v]::
 Displays a list of layers under the Layercake base directory, one line per layer.  The

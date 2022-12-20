@@ -1320,7 +1320,7 @@ export symlink /var/cache/binpkgs $$package_export
 		}
 		checkLayerDescriptions(t, layers, []wantedLayerData{
 			{"base0", "", false, false, false, false, []string{
-				"mounted and ready; can unmount",
+				"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, false, false, false, []string{"mountable"}},
@@ -1342,11 +1342,11 @@ export symlink /var/cache/binpkgs $$package_export
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
 			{"base0", "", false, false, true, false, []string{
-				"mounted and ready",
+				"mounted; cannot be unmounted",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, false, false, false, []string{
-				"mounted and ready; can unmount",
+				"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
@@ -1377,11 +1377,12 @@ export symlink /var/cache/binpkgs $$package_export
 		}
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, true, false, []string{"mounted and ready",
+			{"base0", "", false, false, true, false, []string{
+				"mounted; cannot be unmounted",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, false, false, false, []string{
-				"mounted and ready; can unmount",
+				"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
@@ -1401,16 +1402,17 @@ export symlink /var/cache/binpkgs $$package_export
 			"var/cache/binpkgs var/cache/distfiles")
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, true, false, []string{"mounted and ready",
+			{"base0", "", false, false, true, false, []string{
+				"mounted; cannot be unmounted",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, false, true, false, []string{
-				"mounted and ready",
+				"mounted; cannot be unmounted",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
 			{"derived1", "derived0", false, false, false, false, []string{
-				"mounted and ready; can unmount",
+				"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /usr/portage, /var/cache/distfiles",
 				"  overlayfs"}},
@@ -1459,16 +1461,17 @@ export symlink /var/cache/binpkgs $$package_export
 			"var/cache/binpkgs var/cache/distfiles")
 		layers = getLayers(t, cfg, opts, inuse_all_idle, testName)
 		checkLayerDescriptions(t, layers, []wantedLayerData{
-			{"base0", "", false, false, true, false, []string{"mounted and ready",
+			{"base0", "", false, false, true, false, []string{
+				"mounted; cannot be unmounted",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos"}},
 			{"derived0", "base0", false, false, true, false, []string{
-				"mounted and ready",
+				"mounted; cannot be unmounted",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /var/cache/binpkgs, /var/cache/distfiles, /var/db/repos",
 				"  overlayfs"}},
 			{"derived1", "derived0", false, false, false, false, []string{
-				"mounted and ready; can unmount",
+				"mounted and ready",
 				"Current mounts:",
 				"  required: /dev, /proc, /sys, /usr/portage, /var/cache/distfiles",
 				"  overlayfs"}},

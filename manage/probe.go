@@ -350,6 +350,8 @@ func (ld *Layerdefs) findLayerstate(layer *Layerinfo) {
 		layer.State = Layerstate_mountable
 	} else if numMounted < len(layer.ConfigMounts) {
 		layer.State = Layerstate_partialmount
+	} else if layer.MountBusy || layer.Overlain {
+		layer.State = Layerstate_mounted_busy
 	} else {
 		layer.State = Layerstate_mounted
 	}
