@@ -47,11 +47,35 @@ func (mount *mountType) inodeByInum(inum uint64) inodeType {
 	return mount.ns.devices[mount.st_dev].inodeByInum(inum)
 }
 
+
+func (mount *mountType) rootInode() dirInodeType {
+	return mount.inodeByInum(mount.root_ino).(dirInodeType)
+}
+
+
 func (mount *mountType) addInode(dirInode dirInodeType, name string, inode inodeType,
 		) (inodeType, error) {
 	return mount.ns.devices[mount.st_dev].addInode(dirInode, name, inode)
 }
 
+
+func (mount *mountType) umount(flags int) error {
+	if len(mount.openFiles) > 0 || len(mount.mountpoints) > 0 {
+		return EBUSY
+	}
+	delete(mount.mounted_in.mountpoints, mount.mounted_in_ino)
+	index := -1
+	for i, mt := range mount.ns.mounts {
+		if mt == mount {
+			index = i
+			break
+		}
+	}
+	if index >= 0 {
+		mount.ns.mounts = append(mount.ns.mounts[:index], mount.ns.mounts[index+1:]...)
+	}
+	return nil
+}
 
 
 

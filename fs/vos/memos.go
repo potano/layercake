@@ -296,6 +296,11 @@ func (mos *MemOS) SyscallStat(filename string, stat *syscall.Stat_t) error {
 }
 
 
+func (mos *MemOS) SyscallUnmount(mountpoint string, flags int) error {
+	return toPathError("unmount", mountpoint, mos.umount(mountpoint, flags))
+}
+
+
 func (mos *MemOS) Symlink(oldname, newname string) error {
 	return toPathError("symlink", oldname + " " + newname,  mos.symlink(oldname, newname))
 }

@@ -230,7 +230,7 @@ func (mos *MemOS) resolvePath(relDir *mfsOpenFile, pathname string, asLstat bool
 		if _, is := inode.(dirInodeType); is {
 			for mount.mountpoints[inode.ino()] != nil {
 				mount = mount.mountpoints[inode.ino()]
-				inode = mos.ns.devices[mount.st_dev].rootInode()
+				inode = mount.rootInode()
 				dirInode = nil
 			}
 			if len(path) > 0 && !inode.hasExecutePermission(
@@ -674,6 +674,18 @@ func (mos *MemOS) mount(source, mtpoint, fstype string, flgs uintptr, options st
 		return ns.move_mount(mtpointOpen, mos, source)
 	}
 	return ns.mount(mos, source, mtpointOpen, fstype, flgs)
+}
+
+
+func (mos *MemOS) umount(mountpoint string, flags int) error {
+	mount, inode, err := mos.inodeAtPath(mos.cwd, mountpoint)
+	if err != nil {
+		return err
+	}
+	if inode.ino() != mount.root_ino {
+		return EINVAL
+	}
+	return mount.umount(flags)
 }
 
 

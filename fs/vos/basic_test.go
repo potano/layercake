@@ -4189,6 +4189,77 @@ func TestInsertAndMountSda1ThenMkdir(T *testing.T) {
 }
 
 
+func TestInsertAndMountSda1ThenMkdirThenUnmount(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	err = mos.Mkdir("dev", 0755)
+	if err != nil {
+		T.Fatalf("error on creating /dev: %s", err)
+	}
+	err = mos.SyscallMount("dev", "/dev", "devtmpfs", 0, "")
+	if err != nil {
+		T.Fatalf("error mounting /dev: %s", err)
+	}
+	err = mos.InsertStorageDevice(-1, -1, "ext4", "/dev/sda1")
+	if err != nil {
+		T.Fatalf("error creating device: %s", err)
+	}
+	err = mos.Mkdir("var", 0755)
+	if err != nil {
+		T.Fatalf("error creating /var: %s", err)
+	}
+	err = mos.SyscallMount("/dev/sda1", "/var", "ext4", 0, "")
+	if err != nil {
+		T.Fatalf("error mounting /var: %s", err)
+	}
+	err = mos.Mkdir("/var/log", 0755)
+	if err != nil {
+		T.Fatalf("error creating /var/log: %s", err)
+	}
+	err = mos.SyscallUnmount("var", 0)
+	if err != nil {
+		T.Fatalf("error unmounting /var: %s", err)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "null=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+		}},
+		{"8:1", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "log=2"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+		},
+		[]nsTestMount{
+			{2, 1},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-2, "0:2", 1 },
+				{-1, "0:2", 1 },
+			},
+		},
+	})
+}
+
+
 func TestInsertAndMountSda1ThenMkdirAndOpenFile(T *testing.T) {
 	mos, err := NewMemOS()
 	if err != nil {
@@ -4437,5 +4508,75 @@ func TestStorageMountsWithPopulator(T *testing.T) {
 			},
 		},
 	})
+}
+
+
+func TestUnmountBusy(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4", Source: "/dev/sda1"},
+		PopDir{Name: "boot", Perms: 0755},
+		PopMount{Source: "/dev/sda1", Mountpoint: "/boot", Fstype: "ext4"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "btrfs",
+			Source: "/dev/mapper/vg-var"},
+		PopDir{Name: "var", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-var", Mountpoint: "/var", Fstype: "btrfs"},
+		PopDir{Name: "/var/log", Perms: 0755},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	_, err = mos.OpenFile("/var/log/messages", O_CREATE | O_WRONLY, 0600)
+	if err != nil {
+		T.Fatalf("error creating /var/log/messages: %s", err)
+	}
+	want := "unmount /var: device or resource busy"
+	err = mos.SyscallUnmount("/var", 0)
+	if err == nil {
+		T.Fatalf("expected error on attempt to unmount busy /var")
+	} else if err.Error() != want {
+		T.Fatalf("wanted error '%s' on unmount of busy /var, got '%s'", want, err)
+	}
+}
+
+
+func TestUnmountNonMountpoint(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4", Source: "/dev/sda1"},
+		PopDir{Name: "boot", Perms: 0755},
+		PopMount{Source: "/dev/sda1", Mountpoint: "/boot", Fstype: "ext4"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "btrfs",
+			Source: "/dev/mapper/vg-var"},
+		PopDir{Name: "var", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-var", Mountpoint: "/var", Fstype: "btrfs"},
+		PopDir{Name: "/var/log", Perms: 0755},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	_, err = mos.OpenFile("/var/log/messages", O_CREATE | O_WRONLY, 0600)
+	if err != nil {
+		T.Fatalf("error creating /var/log/messages: %s", err)
+	}
+	want := "unmount /var/log: invalid argument"
+	err = mos.SyscallUnmount("/var/log", 0)
+	if err == nil {
+		T.Fatalf("expected error on attempt to unmount busy /var")
+	} else if err.Error() != want {
+		T.Fatalf("wanted error '%s' on unmount of busy /var, got '%s'", want, err)
+	}
 }
 
