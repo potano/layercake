@@ -4580,3 +4580,378 @@ func TestUnmountNonMountpoint(T *testing.T) {
 	}
 }
 
+
+func TestUnmountMountNotAtEnd(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4", Source: "/dev/sda1"},
+		PopDir{Name: "boot", Perms: 0755},
+		PopMount{Source: "/dev/sda1", Mountpoint: "/boot", Fstype: "ext4"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "btrfs",
+			Source: "/dev/mapper/vg-var"},
+		PopDir{Name: "var", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-var", Mountpoint: "/var", Fstype: "btrfs"},
+		PopDir{Name: "/var/log", Perms: 0755},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	file, err := mos.OpenFile("/var/log/messages", O_CREATE | O_WRONLY, 0600)
+	if err != nil {
+		T.Fatalf("error creating /var/log/messages: %s", err)
+	}
+	_, err = file.Write([]byte("started\n"))
+	if err != nil {
+		T.Fatalf("error writing to /var/log/messages: %s", err)
+	}
+	err = mos.SyscallUnmount("boot", 0)
+	if err != nil {
+		T.Fatalf("error unmounting /boot: %s", err)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "boot=3\ndev=2\nvar=4"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "mapper=3\nnull=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:6", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "log=2"},
+			{nodeTypeDir, 0755, 0, 0, 1, "messages=3"},
+			{nodeTypeFile, 0600, 0, 0, 1, "started\n"},
+		}},
+		{"8:1", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+		},
+		[]nsTestMount{
+			{2, 1},
+			{4, 2},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+		{0, 6, 1, 0, 4, []nsTestOpen{
+			{1, 0, O_CREATE | O_WRONLY, 3, "/var/log/messages", int64(len("started\n")),
+				false, true, false, "/var/log/messages"},
+		},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-2, "0:2", 1 },
+				{-1, "0:2", 1 },
+				{0, "0:6", 3 },
+			},
+		},
+	})
+}
+
+
+func TestBasicSubmount(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4",
+			Source: "/dev/mapper/vg-var"},
+		PopDir{Name: "var", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-var", Mountpoint: "/var", Fstype: "ext4"},
+		PopDir{Name: "/var/log", Perms: 0755},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4",
+			Source: "/dev/mapper/vg-portage"},
+		PopDir{Name: "var/db/repos", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-portage", Mountpoint: "/var/db/repos"},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	file, err := mos.OpenFile("/var/log/messages", O_CREATE | O_WRONLY, 0600)
+	if err != nil {
+		T.Fatalf("error creating /var/log/messages: %s", err)
+	}
+	_, err = file.Write([]byte("started\n"))
+	if err != nil {
+		T.Fatalf("error writing to /var/log/messages: %s", err)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "mapper=3\nnull=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:6", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "db=3\nlog=2"},	// /var
+			{nodeTypeDir, 0755, 0, 0, 1, "messages=5"},	// /var/log
+			{nodeTypeDir, 0755, 0, 0, 1, "repos=4"},	// /var/db
+			{nodeTypeDir, 0755, 0, 0, 1, ""},		// /var/db/repos
+			{nodeTypeFile, 0600, 0, 0, 1, "started\n"},	// /var/log/messages
+		}},
+		{"0:7", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+		},
+		[]nsTestMount{
+			{2, 1},
+			{3, 2},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+		{0, 6, 1, 0, 3, []nsTestOpen{
+			{1, 0, O_CREATE | O_WRONLY, 5, "/var/log/messages", int64(len("started\n")),
+				false, true, false, "/var/log/messages"},
+		},
+		[]nsTestMount{
+			{4, 3},
+		}},
+		{0, 7, 1, 2, 4, []nsTestOpen{},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-2, "0:2", 1 },
+				{-1, "0:2", 1 },
+				{0, "0:6", 5 },
+			},
+		},
+	})
+}
+
+
+func TestUnmountWithSubmount(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4",
+			Source: "/dev/mapper/vg-var"},
+		PopDir{Name: "var", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-var", Mountpoint: "/var", Fstype: "ext4"},
+		PopDir{Name: "/var/log", Perms: 0755},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4",
+			Source: "/dev/mapper/vg-portage"},
+		PopDir{Name: "var/db/repos", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-portage", Mountpoint: "/var/db/repos"},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	want := "unmount /var: device or resource busy"
+	err = mos.SyscallUnmount("/var", 0)
+	if err == nil {
+		T.Fatal("expected error in attempt to unmount /dev")
+	} else if err.Error() != want {
+		T.Fatalf("expected error '%s' attempting to unmount /var, got '%s'", want, err)
+	}
+}
+
+
+func TestUnmountSubmount(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4",
+			Source: "/dev/mapper/vg-var"},
+		PopDir{Name: "var", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-var", Mountpoint: "/var", Fstype: "ext4"},
+		PopDir{Name: "/var/log", Perms: 0755},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4",
+			Source: "/dev/mapper/vg-portage"},
+		PopDir{Name: "var/db/repos", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-portage", Mountpoint: "/var/db/repos"},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	file, err := mos.OpenFile("/var/log/messages", O_CREATE | O_WRONLY, 0600)
+	if err != nil {
+		T.Fatalf("error creating /var/log/messages: %s", err)
+	}
+	_, err = file.Write([]byte("started\n"))
+	if err != nil {
+		T.Fatalf("error writing to /var/log/messages: %s", err)
+	}
+	err = mos.SyscallUnmount("/var/db/repos", 0)
+	if err != nil {
+		T.Fatalf("error unmounting /var/db/repos: %s", err)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "mapper=3\nnull=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:6", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "db=3\nlog=2"},	// /var
+			{nodeTypeDir, 0755, 0, 0, 1, "messages=5"},	// /var/log
+			{nodeTypeDir, 0755, 0, 0, 1, "repos=4"},	// /var/db
+			{nodeTypeDir, 0755, 0, 0, 1, ""},		// /var/db/repos
+			{nodeTypeFile, 0600, 0, 0, 1, "started\n"},	// /var/log/messages
+		}},
+		{"0:7", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+		},
+		[]nsTestMount{
+			{2, 1},
+			{3, 2},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+		{0, 6, 1, 0, 3, []nsTestOpen{
+			{1, 0, O_CREATE | O_WRONLY, 5, "/var/log/messages", int64(len("started\n")),
+				false, true, false, "/var/log/messages"},
+		},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-2, "0:2", 1 },
+				{-1, "0:2", 1 },
+				{0, "0:6", 5 },
+			},
+		},
+	})
+}
+
+
+func TestUnmountSubmountTheCloseFileThenUnmount(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4",
+			Source: "/dev/mapper/vg-var"},
+		PopDir{Name: "var", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-var", Mountpoint: "/var", Fstype: "ext4"},
+		PopDir{Name: "/var/log", Perms: 0755},
+		PopInsertStorageDevice{Major: -1, Minor: -1, Fstype: "ext4",
+			Source: "/dev/mapper/vg-portage"},
+		PopDir{Name: "var/db/repos", Perms: 0755},
+		PopMount{Source: "/dev/mapper/vg-portage", Mountpoint: "/var/db/repos"},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	file, err := mos.OpenFile("/var/log/messages", O_CREATE | O_WRONLY, 0600)
+	if err != nil {
+		T.Fatalf("error creating /var/log/messages: %s", err)
+	}
+	_, err = file.Write([]byte("started\n"))
+	if err != nil {
+		T.Fatalf("error writing to /var/log/messages: %s", err)
+	}
+	err = mos.SyscallUnmount("/var/db/repos", 0)
+	if err != nil {
+		T.Fatalf("error unmounting /var/db/repos: %s", err)
+	}
+	err = file.Close()
+	if err != nil {
+		T.Fatalf("error closing /var/log/message: %s", err)
+	}
+	err = mos.SyscallUnmount("/var", 0)
+	if err != nil {
+		T.Fatalf("error unmounting /var: %s", err)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "mapper=3\nnull=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:6", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "db=3\nlog=2"},	// /var
+			{nodeTypeDir, 0755, 0, 0, 1, "messages=5"},	// /var/log
+			{nodeTypeDir, 0755, 0, 0, 1, "repos=4"},	// /var/db
+			{nodeTypeDir, 0755, 0, 0, 1, ""},		// /var/db/repos
+			{nodeTypeFile, 0600, 0, 0, 1, "started\n"},	// /var/log/messages
+		}},
+		{"0:7", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+		},
+		[]nsTestMount{
+			{2, 1},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-2, "0:2", 1 },
+				{-1, "0:2", 1 },
+			},
+		},
+	})
+}
+

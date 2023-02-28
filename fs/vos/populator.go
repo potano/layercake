@@ -101,7 +101,7 @@ func (a PopDir) describe() string {
 }
 
 func (a PopDir) populate(pop *PopulatorData) error {
-	return pop.Mos.Mkdir(a.Name, FileMode(a.Perms))
+	return pop.Mos.MkdirAll(a.Name, FileMode(a.Perms))
 }
 
 
