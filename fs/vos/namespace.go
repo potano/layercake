@@ -27,7 +27,7 @@ func newRootNamespace(process *MemOS) error {
 	if err != nil {
 		return err
 	}
-	mnt, err := newMount(ns, st_dev, 0)
+	mnt, err := newMount(ns, st_dev, 0, nil, 0)
 	if err != nil {
 		return err
 	}
@@ -221,8 +221,20 @@ func (ns *namespaceType) remount(mtpoint *mfsOpenFile, flgs uintptr) error {
 	return EINVAL
 }
 
-func (ns *namespaceType) bind_mount(mtpoint *mfsOpenFile, mos *MemOS, source string, flgs uintptr) error {
-	return EINVAL
+func (ns *namespaceType) bind_mount(mtpoint *mfsOpenFile, source string, flgs uintptr) error {
+	pid1 := ns.processes[1]
+	sourceOpen, err := pid1.open(source, O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	pid1.hideFD(sourceOpen)
+	mnt, err := newMount(ns, sourceOpen.mount.st_dev, sourceOpen.inode.ino(),
+		mtpoint.mount, mtpoint.inode.ino())
+	if err != nil {
+		return err
+	}
+	mnt.sourceDir = sourceOpen
+	return nil
 }
 
 func (ns *namespaceType) change_mount_type(mtpoint *mfsOpenFile, flgs uintptr) error {
@@ -259,14 +271,11 @@ func (ns *namespaceType) mount(mos *MemOS, source string, mtpoint *mfsOpenFile, 
 	if _, have := ns.devices[st_dev]; !have {
 		return ENOENT
 	}
-	mnt, err := newMount(ns, st_dev, 0)
+	mnt, err := newMount(ns, st_dev, 0, mtpoint.mount, mtpoint.inode.ino())
 	if err != nil {
 		return err
 	}
-	mounted_in_ino := mtpoint.inode.ino()
-	mnt.mounted_in = mtpoint.mount
-	mnt.mounted_in_ino = mounted_in_ino
-	mtpoint.mount.mountpoints[mounted_in_ino] = mnt
+	_ = mnt
 	return nil
 }
 

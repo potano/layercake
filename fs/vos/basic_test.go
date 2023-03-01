@@ -4955,3 +4955,578 @@ func TestUnmountSubmountTheCloseFileThenUnmount(T *testing.T) {
 	})
 }
 
+
+func TestBasicBindMount(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopDir{Name: "/var/db/repos/gentoo/", Perms: 0755},
+		PopFile{Name: "/var/db/repos/gentoo/Manifest", Perms: 0644,
+			Contents: "manifest goes here"},
+		PopDir{Name: "/var/db/repos/local/profiles", Perms: 0755},
+		PopDir{Name: "/usr/portage", Perms: 0755},
+		PopMount{Source: "var/db/repos/gentoo", Mountpoint: "usr/portage", Flags: MS_BIND},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nusr=10\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "db=4"},
+			{nodeTypeDir, 0755, 0, 0, 1, "repos=5"},
+			{nodeTypeDir, 0755, 0, 0, 1, "gentoo=6\nlocal=8"},
+			{nodeTypeDir, 0755, 0, 0, 1, "Manifest=7"},
+			{nodeTypeFile, 0644, 0, 0, 1, "manifest goes here"},
+			{nodeTypeDir, 0755, 0, 0, 1, "profiles=9"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "portage=11"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "null=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -3, O_RDONLY, 6, "var/db/repos/gentoo", 0, true, false, true,
+				"/var/db/repos/gentoo"},
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+		},
+		[]nsTestMount{
+			{2, 1},
+			{11, 2},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+		{0, 2, 6, 0, 11, []nsTestOpen{
+		},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-3, "0:2", 6 },	// /var/db/repos/gentoo
+				{-2, "0:2", 1 },	// /
+				{-1, "0:2", 1 },	// /
+			},
+		},
+	})
+}
+
+
+func TestBasicBindMountWithOtherProcess(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopDir{Name: "/var/db/repos/gentoo/", Perms: 0755},
+		PopFile{Name: "/var/db/repos/gentoo/Manifest", Perms: 0644,
+			Contents: "manifest goes here"},
+		PopDir{Name: "/var/db/repos/local/profiles", Perms: 0755},
+		PopDir{Name: "/usr/portage", Perms: 0755},
+		PopFile{Name: "/runner", Perms: 0755},
+		PopStartProcess{Executable: "/runner", Dir: "/", ExpectedPid: 100, Symbol: "new"},
+		PopSwitchContext{Symbol: "new"},
+		PopMount{Source: "var/db/repos/gentoo", Mountpoint: "usr/portage", Flags: MS_BIND},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nrunner=12\nusr=10\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "db=4"},
+			{nodeTypeDir, 0755, 0, 0, 1, "repos=5"},
+			{nodeTypeDir, 0755, 0, 0, 1, "gentoo=6\nlocal=8"},
+			{nodeTypeDir, 0755, 0, 0, 1, "Manifest=7"},
+			{nodeTypeFile, 0644, 0, 0, 1, "manifest goes here"},
+			{nodeTypeDir, 0755, 0, 0, 1, "profiles=9"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "portage=11"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeFile, 0755, 0, 0, 1, ""},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "null=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -3, O_RDONLY, 6, "var/db/repos/gentoo", 0, true, false, true,
+				"/var/db/repos/gentoo"},
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{100, -3, O_RDONLY, 12, "/runner", 0, true, false, true,
+				"/runner"},
+			{100, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{100, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+		},
+		[]nsTestMount{
+			{2, 1},
+			{11, 2},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+		{0, 2, 6, 0, 11, []nsTestOpen{
+		},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-3, "0:2", 6 },	// /var/db/repos/gentoo
+				{-2, "0:2", 1 },	// /
+				{-1, "0:2", 1 },	// /
+			},
+		},
+		{100, 0, 0, -1, -2, []nsTestProcOpen{
+				{-3, "0:2", 12 },	// /runner
+				{-2, "0:2", 1 },	// /
+				{-1, "0:2", 1 },	// /
+				{ 0, "0:0", 0 },	// stdin
+				{ 1, "0:0", 0 },	// stdout
+				{ 2, "0:0", 0 },	// stderr
+			},
+		},
+	})
+}
+
+
+func TestBasicBindMountWithOtherProcessThenUnmount(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopDir{Name: "/var/db/repos/gentoo/", Perms: 0755},
+		PopFile{Name: "/var/db/repos/gentoo/Manifest", Perms: 0644,
+			Contents: "manifest goes here"},
+		PopDir{Name: "/var/db/repos/local/profiles", Perms: 0755},
+		PopDir{Name: "/usr/portage", Perms: 0755},
+		PopFile{Name: "/runner", Perms: 0755},
+		PopStartProcess{Executable: "/runner", Dir: "/", ExpectedPid: 100, Symbol: "new"},
+		PopSwitchContext{Symbol: "new"},
+		PopMount{Source: "var/db/repos/gentoo", Mountpoint: "usr/portage", Flags: MS_BIND},
+	}
+	data, err := populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	newProcess := data.CmdMap["new"].ChildProcess()
+	err = newProcess.SyscallUnmount("/usr/portage", 0)
+	if err != nil {
+		T.Fatalf("error unmounting bind mount: %s", err)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nrunner=12\nusr=10\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "db=4"},
+			{nodeTypeDir, 0755, 0, 0, 1, "repos=5"},
+			{nodeTypeDir, 0755, 0, 0, 1, "gentoo=6\nlocal=8"},
+			{nodeTypeDir, 0755, 0, 0, 1, "Manifest=7"},
+			{nodeTypeFile, 0644, 0, 0, 1, "manifest goes here"},
+			{nodeTypeDir, 0755, 0, 0, 1, "profiles=9"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "portage=11"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeFile, 0755, 0, 0, 1, ""},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "null=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{100, -3, O_RDONLY, 12, "/runner", 0, true, false, true,
+				"/runner"},
+			{100, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{100, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+		},
+		[]nsTestMount{
+			{2, 1},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-2, "0:2", 1 },	// /
+				{-1, "0:2", 1 },	// /
+			},
+		},
+		{100, 0, 0, -1, -2, []nsTestProcOpen{
+				{-3, "0:2", 12 },	// /runner
+				{-2, "0:2", 1 },	// /
+				{-1, "0:2", 1 },	// /
+				{ 0, "0:0", 0 },	// stdin
+				{ 1, "0:0", 0 },	// stdout
+				{ 2, "0:0", 0 },	// stderr
+			},
+		},
+	})
+}
+
+
+func TestBindMountTwoOpens(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopDir{Name: "/var/db/repos/gentoo/", Perms: 0755},
+		PopFile{Name: "/var/db/repos/gentoo/Manifest", Perms: 0644,
+			Contents: "manifest goes here"},
+		PopDir{Name: "/var/db/repos/local/profiles", Perms: 0755},
+		PopDir{Name: "/usr/portage", Perms: 0755},
+		PopMount{Source: "var/db/repos/gentoo", Mountpoint: "usr/portage", Flags: MS_BIND},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	file1, err := mos.Create("/usr/portage/header.txt")
+	if err != nil {
+		T.Fatalf("error creating /usr/portage/header.txt")
+	}
+	want := "Goes into header"
+	_, err = file1.Write([]byte(want))
+	if err != nil {
+		T.Fatalf("error writing to /usr/portage/header.txt")
+	}
+	file2, err := mos.Open("/var/db/repos/gentoo/header.txt")
+	if err != nil {
+		T.Fatalf("error opening /var/db/repos/gentoo/header.txt: %s", err)
+	}
+	buf := make([]byte, 30)
+	n, err := file2.Read(buf)
+	if err != nil {
+		T.Fatalf("error reading from /var/db/repos/gentoo/header.txt: %s", err)
+	}
+	if string(buf[:n]) != want {
+		T.Fatalf("expected to read '%s', got '%s'", want, buf[:n])
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nusr=10\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "db=4"},
+			{nodeTypeDir, 0755, 0, 0, 1, "repos=5"},
+			{nodeTypeDir, 0755, 0, 0, 1, "gentoo=6\nlocal=8"},
+			{nodeTypeDir, 0755, 0, 0, 1, "Manifest=7\nheader.txt=12"},
+			{nodeTypeFile, 0644, 0, 0, 1, "manifest goes here"},
+			{nodeTypeDir, 0755, 0, 0, 1, "profiles=9"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "portage=11"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeFile, 0644, 0, 0, 1, want},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "null=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -3, O_RDONLY, 6, "var/db/repos/gentoo", 0, true, false, true,
+				"/var/db/repos/gentoo"},
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, 1, O_RDONLY, 12, "/var/db/repos/gentoo/header.txt",
+				int64(n), true, false, false, "/var/db/repos/gentoo/header.txt"},
+		},
+		[]nsTestMount{
+			{2, 1},
+			{11, 2},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+		{0, 2, 6, 0, 11, []nsTestOpen{
+			{1, 0, O_CREATE | O_TRUNC | O_WRONLY, 12, "/usr/portage/header.txt",
+				int64(n), false, true, false, "/usr/portage/header.txt"},
+		},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-3, "0:2", 6 },	// /var/db/repos/gentoo
+				{-2, "0:2", 1 },	// /
+				{-1, "0:2", 1 },	// /
+				{ 0, "0:2", 12 },	// /usr/portage/header.txt
+				{ 1, "0:2", 12 },	// /var/db/repos/gentoo/header.txt
+			},
+		},
+	})
+}
+
+
+func TestBindMountTwoOpensAttemptUnmount(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopDir{Name: "/var/db/repos/gentoo/", Perms: 0755},
+		PopFile{Name: "/var/db/repos/gentoo/Manifest", Perms: 0644,
+			Contents: "manifest goes here"},
+		PopDir{Name: "/var/db/repos/local/profiles", Perms: 0755},
+		PopDir{Name: "/usr/portage", Perms: 0755},
+		PopMount{Source: "var/db/repos/gentoo", Mountpoint: "usr/portage", Flags: MS_BIND},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	file1, err := mos.Create("/usr/portage/header.txt")
+	if err != nil {
+		T.Fatalf("error creating /usr/portage/header.txt")
+	}
+	want := "Goes into header"
+	_, err = file1.Write([]byte(want))
+	if err != nil {
+		T.Fatalf("error writing to /usr/portage/header.txt")
+	}
+	file2, err := mos.Open("/var/db/repos/gentoo/header.txt")
+	if err != nil {
+		T.Fatalf("error opening /var/db/repos/gentoo/header.txt: %s", err)
+	}
+	buf := make([]byte, 30)
+	n, err := file2.Read(buf)
+	if err != nil {
+		T.Fatalf("error reading from /var/db/repos/gentoo/header.txt: %s", err)
+	}
+	if string(buf[:n]) != want {
+		T.Fatalf("expected to read '%s', got '%s'", want, buf[:n])
+	}
+	want = "unmount /usr/portage: device or resource busy"
+	err = mos.SyscallUnmount("/usr/portage", 0)
+	if err == nil {
+		T.Fatalf("expected error on attempting to unmount /usr/portage: %s", err)
+	} else if err.Error() != want {
+		T.Fatalf("expected error '%s', got '%s'", want, err)
+	}
+}
+
+
+func TestBindMountOpenTwoCloseOneThenUnmount(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopDir{Name: "/var/db/repos/gentoo/", Perms: 0755},
+		PopFile{Name: "/var/db/repos/gentoo/Manifest", Perms: 0644,
+			Contents: "manifest goes here"},
+		PopDir{Name: "/var/db/repos/local/profiles", Perms: 0755},
+		PopDir{Name: "/usr/portage", Perms: 0755},
+		PopMount{Source: "var/db/repos/gentoo", Mountpoint: "usr/portage", Flags: MS_BIND},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	file1, err := mos.Create("/usr/portage/header.txt")
+	if err != nil {
+		T.Fatalf("error creating /usr/portage/header.txt")
+	}
+	want := "Goes into header"
+	_, err = file1.Write([]byte(want))
+	if err != nil {
+		T.Fatalf("error writing to /usr/portage/header.txt")
+	}
+	file2, err := mos.Open("/var/db/repos/gentoo/header.txt")
+	if err != nil {
+		T.Fatalf("error opening /var/db/repos/gentoo/header.txt: %s", err)
+	}
+	buf := make([]byte, 30)
+	n, err := file2.Read(buf)
+	if err != nil {
+		T.Fatalf("error reading from /var/db/repos/gentoo/header.txt: %s", err)
+	}
+	if string(buf[:n]) != want {
+		T.Fatalf("expected to read '%s', got '%s'", want, buf[:n])
+	}
+	err = file1.Close()
+	if err != nil {
+		T.Fatalf("error closing /usr/portage/header.txt: %s", err)
+	}
+	err = mos.SyscallUnmount("/usr/portage", 0)
+	if err != nil {
+		T.Fatalf("error unmounting /usr/portage: %s", err)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nusr=10\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "db=4"},
+			{nodeTypeDir, 0755, 0, 0, 1, "repos=5"},
+			{nodeTypeDir, 0755, 0, 0, 1, "gentoo=6\nlocal=8"},
+			{nodeTypeDir, 0755, 0, 0, 1, "Manifest=7\nheader.txt=12"},
+			{nodeTypeFile, 0644, 0, 0, 1, "manifest goes here"},
+			{nodeTypeDir, 0755, 0, 0, 1, "profiles=9"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "portage=11"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeFile, 0644, 0, 0, 1, want},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "null=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, 1, O_RDONLY, 12, "/var/db/repos/gentoo/header.txt",
+				int64(n), true, false, false, "/var/db/repos/gentoo/header.txt"},
+		},
+		[]nsTestMount{
+			{2, 1},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-2, "0:2", 1 },	// /
+				{-1, "0:2", 1 },	// /
+				{ 1, "0:2", 12 },	// /var/db/repos/gentoo/header.txt
+			},
+		},
+	})
+}
+
+
+func TestBindMountOpenExistingFile(T *testing.T) {
+	mos, err := NewMemOS()
+	if err != nil {
+		T.Fatal(err.Error())
+	}
+	populator := PopulatorType{
+		PopDir{Name: "/dev", Perms: 0755},
+		PopMount{Source: "dev", Mountpoint: "/dev", Fstype: "devtmpfs"},
+		PopDir{Name: "/var/db/repos/gentoo/", Perms: 0755},
+		PopFile{Name: "/var/db/repos/gentoo/Manifest", Perms: 0644,
+			Contents: "manifest goes here"},
+		PopDir{Name: "/var/db/repos/local/profiles", Perms: 0755},
+		PopDir{Name: "/usr/portage", Perms: 0755},
+	}
+	_, err = populator.Populate(mos)
+	if err != nil {
+		T.Fatalf("populator failure: %s", err)
+	}
+	file1, err := mos.Create("/var/db/repos/gentoo/header.txt")
+	if err != nil {
+		T.Fatalf("error creating /var/db/repos/gentoo/header.txt: %s", err)
+	}
+	want := "This is the header"
+	_, err = file1.Write([]byte(want))
+	if err != nil {
+		T.Fatalf("error writing to /var/db/repos/gentoo/header.txt: %s", err)
+	}
+	err = mos.SyscallMount("/var/db/repos/gentoo", "/usr/portage", "", MS_BIND, "")
+	if err != nil {
+		T.Fatalf("error mounting /usr/portage: %s", err)
+	}
+	file2, err := mos.Open("usr/portage/header.txt")
+	if err != nil {
+		T.Fatalf("error opening /usr/portage/header.txt: %s", err)
+	}
+	buf := make([]byte, 40)
+	n, err := file2.Read(buf)
+	if err != nil {
+		T.Fatalf("error reading /usr/portage/header.txt: %s", err)
+	}
+	got := string(buf[:n])
+	if got != want {
+		T.Fatalf("expected to read '%s', got '%s'", want, got)
+	}
+	ns := mos.ns
+	checkNSDevices(ns, T, nsTestDevices{
+		{"0:2", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "dev=2\nusr=10\nvar=3"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "db=4"},
+			{nodeTypeDir, 0755, 0, 0, 1, "repos=5"},
+			{nodeTypeDir, 0755, 0, 0, 1, "gentoo=6\nlocal=8"},
+			{nodeTypeDir, 0755, 0, 0, 1, "Manifest=7\nheader.txt=12"},
+			{nodeTypeFile, 0644, 0, 0, 1, "manifest goes here"},
+			{nodeTypeDir, 0755, 0, 0, 1, "profiles=9"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeDir, 0755, 0, 0, 1, "portage=11"},
+			{nodeTypeDir, 0755, 0, 0, 1, ""},
+			{nodeTypeFile, 0644, 0, 0, 1, want},
+		}},
+		{"0:5", []nsTestInode{
+			{nodeTypeDir, 0755, 0, 0, 1, "null=2"},
+			{nodeTypeCharDev, 0666, 0, 0, 1, "1:3"},
+		}},
+	})
+	checkNSMounts(ns, T, nsTestMounts{
+		{0, 2, 1, -1, 0, []nsTestOpen{
+			{1, -3, O_RDONLY, 6, "/var/db/repos/gentoo", 0,
+				true, false, true, "/var/db/repos/gentoo"},
+			{1, -2, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, -1, O_RDONLY, 1, "/", 0, true, false, true, "/"},
+			{1, 0, O_CREATE | O_TRUNC | O_WRONLY, 12, "/var/db/repos/gentoo/header.txt",
+				int64(n), false, true, false, "/var/db/repos/gentoo/header.txt"},
+		},
+		[]nsTestMount{
+			{2, 1},
+			{11, 2},
+		}},
+		{0, 5, 1, 0, 2, []nsTestOpen{
+		},
+		nil},
+		{0, 2, 6, 0, 11, []nsTestOpen{
+			{1, 1, O_RDONLY, 12, "usr/portage/header.txt", int64(n),
+				true, false, false, "/usr/portage/header.txt"},
+			}, nil},
+	})
+	checkNSProcesses(ns, T, nsTestProcesses{
+		{1, 0, 0, -1, -2, []nsTestProcOpen{
+				{-3, "0:2", 6 },	// /var/db/repos/gentoo/
+				{-2, "0:2", 1 },	// /
+				{-1, "0:2", 1 },	// /
+				{ 0, "0:2", 12 },	// /var/db/repos/gentoo/header.txt
+				{ 1, "0:2", 12 },	// /usr/portage/header.txt
+			},
+		},
+	})
+}
+

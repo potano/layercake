@@ -666,7 +666,7 @@ func (mos *MemOS) mount(source, mtpoint, fstype string, flgs uintptr, options st
 			return ns.remount(mtpointOpen, flgs)
 		}
 	} else if (flgs & syscall.MS_BIND) > 0 {
-		return ns.bind_mount(mtpointOpen, mos, source, flgs)
+		return ns.bind_mount(mtpointOpen, source, flgs)
 	} else if (flgs & (syscall.MS_SHARED | syscall.MS_PRIVATE | syscall.MS_SLAVE |
 			syscall.MS_UNBINDABLE)) > 0 {
 		return ns.change_mount_type(mtpointOpen, flgs)

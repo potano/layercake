@@ -3,7 +3,6 @@
 
 package vos
 
-import "syscall"
 
 type mountType struct {
 //	root, mountpoint, options string
@@ -13,6 +12,7 @@ type mountType struct {
 //	index, mounted_in int
 	mounted_in *mountType
 	mounted_in_ino uint64
+	sourceDir, source2Dir, workDir *mfsOpenFile
 	openFiles map[pidFdType]*mfsOpenFile
 	mountpoints map[uint64]*mountType
 }
@@ -23,10 +23,11 @@ type pidFdType struct {
 }
 
 
-func newMount(ns *namespaceType, st_dev, root_ino uint64) (*mountType, error) {
+func newMount(ns *namespaceType, st_dev, root_ino uint64, mounted_in *mountType,
+		mounted_in_ino uint64) (*mountType, error) {
 	device := ns.devices[st_dev]
 	if device == nil {
-		return nil, syscall.ENOTBLK
+		return nil, ENOTBLK
 	}
 	if root_ino == 0 {
 		root_ino = device.rootInode().ino()
@@ -35,10 +36,15 @@ func newMount(ns *namespaceType, st_dev, root_ino uint64) (*mountType, error) {
 		ns: ns,
 		st_dev: st_dev,
 		root_ino: root_ino,
+		mounted_in: mounted_in,
+		mounted_in_ino: mounted_in_ino,
 		openFiles: map[pidFdType]*mfsOpenFile{},
 		mountpoints: map[uint64]*mountType{},
 	}
 	ns.mounts = append(ns.mounts, mount)
+	if mounted_in != nil {
+		mounted_in.mountpoints[mounted_in_ino] = mount
+	}
 	return mount, nil
 }
 
@@ -73,6 +79,15 @@ func (mount *mountType) umount(flags int) error {
 	}
 	if index >= 0 {
 		mount.ns.mounts = append(mount.ns.mounts[:index], mount.ns.mounts[index+1:]...)
+	}
+	if mount.sourceDir != nil {
+		mount.sourceDir.Close()
+	}
+	if mount.source2Dir != nil {
+		mount.source2Dir.Close()
+	}
+	if mount.workDir != nil {
+		mount.workDir.Close()
 	}
 	return nil
 }
