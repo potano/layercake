@@ -188,7 +188,7 @@ func (mos *MemOS) LookPath(file string) (string, error) {
 		return "", ENOENT
 	}
 	if file[0] == '/' || file[0] == '.' {
-		mount, dirInode, inode, _, err := mos.inodeAtPathWithParent(mos.cwd, file)
+		_, _, inode, _, path, err := mos.inodeAtPathWithParent(mos.cwd, file)
 		if err != nil {
 			return "", err
 		}
@@ -198,22 +198,21 @@ func (mos *MemOS) LookPath(file string) (string, error) {
 		if !mos.hasExecutePermission(inode) {
 			return "", EACCES
 		}
-		return mos.findAbsolutePath(mount, dirInode, inode)
+		return path.toString(), nil
 	}
 	pathString := mos.environment["PATH"]
 	if len(pathString) == 0 {
 		return "", ENOENT
 	}
 	for _, part := range strings.Split(pathString, ":") {
-		mount, dirInode, inode, _, err :=
-			mos.inodeAtPathWithParent(mos.cwd, part + "/" + file)
+		_, _, inode, _, path, err := mos.inodeAtPathWithParent(mos.cwd, part + "/" + file)
 		if err != nil {
 			return "", err
 		}
 		if inode == nil || !mos.hasExecutePermission(inode) {
 			continue
 		}
-		return mos.findAbsolutePath(mount, dirInode, inode)
+		return path.toString(), nil
 	}
 	return "", ENOENT
 }
@@ -270,7 +269,7 @@ func (mos *MemOS) SetEnv(key, value string) error {
 
 
 func (mos *MemOS) SyscallLstat(filename string, stat *syscall.Stat_t) error {
-	_, _, inode, _, err := mos.inodeAtPathWithParent(mos.cwd, filename)
+	_, _, inode, _, _, err := mos.inodeAtPathWithParent(mos.cwd, filename)
 	if err != nil {
 		return err
 	}
@@ -313,5 +312,25 @@ func toPathError(op, pathname string, err error) error {
 		return &PathError{op, pathname, err}
 	}
 	return nil
+}
+
+
+
+
+func ParseMountOptions(str string) map[string]string {
+	segs := strings.Split(str, ",")
+	out := make(map[string]string, len(segs))
+	for _, seg := range segs {
+		if len(seg) == 0 {
+			continue
+		}
+		n := strings.IndexByte(seg, '=')
+		if n < 0 {
+			out[seg] = ""
+		} else {
+			out[seg[:n]] = seg[n+1:]
+		}
+	}
+	return out
 }
 

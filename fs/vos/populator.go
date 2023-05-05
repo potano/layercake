@@ -5,6 +5,7 @@ package vos
 
 import (
 	"fmt"
+	"time"
 	"syscall"
 )
 
@@ -21,6 +22,7 @@ type PopulatorData struct {
 	Mos *MemOS
 	Uid, Gid uint64
 	CmdMap map[string]*mosCmd
+	OpenMap map[string]*mfsOpenFile
 }
 
 
@@ -30,6 +32,7 @@ func (actions PopulatorType) Populate(mos *MemOS) (*PopulatorData, error) {
 		Uid: uint64(mos.Geteuid()),
 		Gid: uint64(mos.Getegid()),
 		CmdMap: map[string]*mosCmd{},
+		OpenMap: map[string]*mfsOpenFile{},
 	}
 	for i, act := range actions {
 		err := act.populate(pop)
@@ -91,6 +94,31 @@ func (a PopFile) populate(pop *PopulatorData) error {
 }
 
 
+type PopOpenFile struct {
+	Name string
+	Flags int
+	Mode FileMode
+	Symbol string
+}
+
+func (a PopOpenFile) describe() string {
+	return "PopOpenFile"
+}
+
+func (a PopOpenFile) populate(pop *PopulatorData) error {
+	file, err := pop.Mos.OpenFile(a.Name, a.Flags, a.Mode)
+	if err != nil {
+		return err
+	}
+	symbol := a.Name
+	if len(a.Symbol) > 0 {
+		symbol = a.Symbol
+	}
+	pop.OpenMap[symbol] = file
+	return nil
+}
+
+
 type PopDir struct {
 	Name string
 	Perms uint64
@@ -142,6 +170,21 @@ func (a PopFifo) describe() string {
 
 func (a PopFifo) populate(pop *PopulatorData) error {
 	return pop.Mos.Mkfifo(a.Name, FileMode(a.Perms))
+}
+
+
+type PopChtimes struct {
+	Name string
+	Atime time.Time
+	Mtime time.Time
+}
+
+func (a PopChtimes) describe() string {
+	return "PopChtimes"
+}
+
+func (a PopChtimes) populate(pop *PopulatorData) error {
+	return pop.Mos.Chtimes(a.Name, a.Atime, a.Mtime)
 }
 
 

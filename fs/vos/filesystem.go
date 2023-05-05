@@ -3,7 +3,11 @@
 
 package vos
 
-import "path"
+import (
+	"io"
+	"path"
+	"strings"
+)
 
 
 type filesystemMaker func (st_dev uint64, fstype, source string, ns *namespaceType,
@@ -17,6 +21,15 @@ type filesystemInstance interface {
 	getSource() string
 	getStDev() uint64
 	populateAsRequired(string, map[string]inodeType)
+	resolveFromReadonlyFS(dirInodeType, string) (inodeType, error)
+	duplicateInodeForFilesystem(inodeType) inodeType
+	newFileInode() fileInodeType
+	newDirInode() dirInodeType
+	newLinkInode() linkInodeType
+	newFifoInode() fifoInodeType
+	newSockInode() sockInodeType
+	newChardevInode(uint64, io.Reader, io.Writer) charDeviceInodeType
+	newBlockdevInode(uint64) blockDeviceInodeType
 }
 
 
@@ -42,7 +55,7 @@ func (fs *baseFilesystemData) addInode(dirInode dirInodeType, name string, inode
 			return nil, err
 		}
 		if inode.isDir() {
-			inode.(dirInodeType).setParent(dirInode.ino())
+			inode.(dirInodeType).setParent(dirInode)
 		}
 	}
 	inode.incrementNlinks()
@@ -87,5 +100,81 @@ func (fs *baseFilesystemData) linearizeTree(prefix string, dir dirInodeType,
 			fs.linearizeTree(pathname, childDir, entries)
 		}
 	}
+}
+
+
+
+func (fs *baseFilesystemData) newFileInode() fileInodeType {
+	return newBaseFileInode()
+}
+
+func (fs *baseFilesystemData) newDirInode() dirInodeType {
+	return newBaseDirInode()
+}
+
+func (fs *baseFilesystemData) newLinkInode() linkInodeType {
+	return newBaseLinkInode()
+}
+
+func (fs *baseFilesystemData) newFifoInode() fifoInodeType {
+	return newBaseFifoInode()
+}
+
+func (fs *baseFilesystemData) newSockInode() sockInodeType {
+	return newBaseSockInode()
+}
+
+func (fs *baseFilesystemData) newChardevInode(
+		st_rdev uint64, reader io.Reader, writer io.Writer) charDeviceInodeType {
+	return newBaseChardevInode(st_rdev, reader, writer)
+}
+
+func (fs *baseFilesystemData) newBlockdevInode(	st_rdev uint64) blockDeviceInodeType {
+	return newBaseBlockdevInode(st_rdev)
+}
+
+
+
+func (fs *baseFilesystemData) resolveReadonlyPathIncrement(dirInode dirInodeType,
+		pathname, name string) (inodeType, error) {
+	return nil, nil
+}
+
+func (fs *baseFilesystemData) resolveFromReadonlyFS(
+		dirInode dirInodeType, pathname string) (inodeType, error) {
+	name := pathname
+	if ipos := strings.LastIndexByte(name, '/'); ipos >= 0 {
+		name = name[ipos + 1 :]
+	}
+	roInode, err := fs.resolveReadonlyPathIncrement(dirInode, pathname, name)
+	if roInode == nil || err != nil {
+		return roInode, err
+	}
+	inode := fs.duplicateInodeForFilesystem(roInode)
+	inode.setReadonlyInode(roInode)
+	fs.addInode(dirInode, name, inode)
+	return inode, nil
+}
+
+func (fs *baseFilesystemData) duplicateInodeForFilesystem(orig inodeType) (inode inodeType) {
+	tfer := orig.getMetadata()
+	switch orig.nodeType() {
+	case nodeTypeFile:
+		inode = fs.newFileInode()
+	case nodeTypeDir:
+		inode = fs.newDirInode()
+	case nodeTypeLink:
+		inode = fs.newLinkInode()
+	case nodeTypeFifo:
+		inode = fs.newFifoInode()
+	case nodeTypeSock:
+		inode = fs.newSockInode()
+	case nodeTypeCharDev:
+		inode = fs.newChardevInode(0, nil, nil)
+	case nodeTypeBlockDev:
+		inode = fs.newBlockdevInode(0)
+	}
+	inode.setMetadata(tfer)
+	return inode
 }
 

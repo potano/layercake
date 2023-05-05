@@ -153,75 +153,72 @@ func (mos *MemOS) changeOpenFileFD(oldFD, newFD int) error {
 
 
 func (mos *MemOS) inodeAtPath(relDir *mfsOpenFile, pathname string) (*mountType, inodeType, error) {
-	mount, _, inode, _, err := mos.resolvePath(relDir, pathname, false)
+	mount, _, inode, _, _, err := mos.resolvePath(relDir, pathname, false)
 	return mount, inode, err
 }
 
 
 func (mos *MemOS) inodeAtPathWithParent(relDir *mfsOpenFile, pathname string,
-		) (*mountType, dirInodeType, inodeType, string, error) {
+		) (*mountType, dirInodeType, inodeType, string, abspathType, error) {
 	return mos.resolvePath(relDir, pathname, true)
 }
 
 
 func (mos *MemOS) mfsOpenFileAtPath(pathname string) (*mfsOpenFile, error) {
-	mount, _, inode, name, err := mos.inodeAtPathWithParent(mos.cwd, pathname)
+	mount, _, inode, _, path, err := mos.inodeAtPathWithParent(mos.cwd, pathname)
 	return &mfsOpenFile{
 		mount: mount,
 		inode: inode,
 		mos: mos,
-		name: name}, err
+		name: pathname,
+		abspath: path.toString()}, err
 }
 
 
 func (mos *MemOS) resolvePath(relDir *mfsOpenFile, pathname string, asLstat bool,
-		) (mount *mountType, dirInode dirInodeType, inode inodeType, name string, err error,
-		) {
+		) (mount *mountType, dirInode dirInodeType, inode inodeType, name string,
+		   resolvedPath abspathType, err error) {
 	if len(pathname) == 0 {
 		err = ENOENT
 		return
 	}
-	path := parsePath(pathname)
-	if path[0] == "/" {
+	if pathname[0] == '/' {
 		relDir = mos.root
-		path = path[1:]
 	}
-	mount = relDir.mount
-	inode = relDir.inode
-	for len(path) > 0 {
-		name = ""
+	resolvedPath = newAbspath(relDir.abspath + "/" + pathname)
+	mount = mos.root.mount
+	inode = mos.root.inode
+	var pathX int
+	finalPathX := len(resolvedPath) - 1
+	for pathX, name = range resolvedPath {
+		endOfPath := pathX == finalPathX
 		var isDir bool
 		dirInode, isDir = inode.(dirInodeType)
 		if !isDir {
 			err = ENOTDIR
 			return
 		}
-		part0 := path[0]
-		path = path[1:]
-		if part0 == "." {
-			continue
-		}
-		if part0 == ".." {
-			mount, inode, err = mos.toParentDirectory(mount, inode)
+		inode = dirInode.direntByName(name)
+		if inode == nil {
+			inode, err = mount.fs.resolveFromReadonlyFS(dirInode,
+				resolvedPath.partial(pathX+1))
 			if err != nil {
 				return
 			}
-			continue
-		}
-		name = part0
-		inode = dirInode.direntByName(part0)
-		if inode == nil {
-			if len(path) > 0 || !asLstat {
-				err = ENOENT
-			}
-			return
-		}
-		if linkInode, is := inode.(linkInodeType); is {
-			if asLstat && len(path) == 0 {
+			if inode == nil {
+				if !endOfPath || !asLstat {
+					err = ENOENT
+				}
 				return
 			}
-			mount, dirInode, inode, name, err = mos.resolvePath(
-				&mfsOpenFile{mount: mount, inode: dirInode},
+		}
+		if linkInode, is := inode.(linkInodeType); is {
+			if asLstat && endOfPath {
+				return
+			}
+			mount, dirInode, inode, _, _, err = mos.resolvePath(
+				&mfsOpenFile{mount: mount, inode: dirInode,
+					abspath: resolvedPath.partial(pathX)},
 				linkInode.getLinkTarget(), false)
 			if err != nil {
 				return
@@ -233,7 +230,7 @@ func (mos *MemOS) resolvePath(relDir *mfsOpenFile, pathname string, asLstat bool
 				inode = mount.rootInode()
 				dirInode = nil
 			}
-			if len(path) > 0 && !inode.hasExecutePermission(
+			if !endOfPath && !inode.hasExecutePermission(
 					mos.hasUserAccess(inode.uid()),
 					mos.hasGroupAccess(inode.gid())) {
 				err = EACCES
@@ -245,90 +242,9 @@ func (mos *MemOS) resolvePath(relDir *mfsOpenFile, pathname string, asLstat bool
 }
 
 
-func (mos *MemOS) toParentDirectory(mount *mountType, inode inodeType,
-		) (*mountType, inodeType, error) {
-	origMount := mount
-	origInode := inode
-	root_st_dev := mos.root.mount.st_dev
-	root_st_ino := mos.root.inode.(*mfsInodeBase).st_ino
-	for {
-		baseInode, isDir := inode.(*mfsDirInodeBase)
-		if !isDir {
-			return mount, inode, ENOTDIR
-		}
-		if baseInode.st_dev == root_st_dev && baseInode.st_ino == root_st_ino {
-			return origMount, origInode, nil
-		}
-		if baseInode.st_ino != mount.root_ino && baseInode.parent_ino != 0 {
-			inode = mos.ns.devices[mount.st_dev].inodeByInum(baseInode.parent_ino)
-			break
-		} else if mount.mounted_in == nil || mount.mounted_in == mount {
-			return origMount, origInode, nil
-		}
-		mounted_in_ino := mount.mounted_in_ino
-		mount = mount.mounted_in
-		inode = mos.ns.devices[mount.st_dev].inodeByInum(mounted_in_ino)
-	}
-	if !inode.hasExecutePermission(
-			mos.hasUserAccess(inode.uid()),
-			mos.hasGroupAccess(inode.gid())) {
-		return mount, inode, EACCES
-	}
-	return mount, inode, nil
-}
-
-
-func (mos *MemOS) findAbsolutePath(mount *mountType, parentInode dirInodeType,
-		inode inodeType) (string, error) {
-	root_st_dev := mos.root.mount.st_dev
-	root_st_ino := mos.root.inode.ino()
-	path := []string{}
-	for parentInode != nil { 
-		found := false
-		for name, tst := range parentInode.direntMap() {
-			if tst == inode {
-				path = append(path, name)
-				found = true
-				break
-			}
-		}
-		if !found {
-			return "", ENOENT
-		}
-		inode = parentInode
-		for parentInode != nil {
-			if parentInode.dev() == root_st_dev && parentInode.ino() == root_st_ino {
-				parentInode = nil
-				break
-			}
-			if parentInode.ino() == mount.root_ino {
-				if mount.mounted_in == nil || mount.mounted_in == mount {
-					parentInode = nil
-					break
-				}
-				mounted_in_ino := mount.mounted_in_ino
-				mount = mount.mounted_in
-				inode = mount.inodeByInum(mounted_in_ino)
-				parentInode = inode.(dirInodeType)
-			} else {
-				parentInode = mount.inodeByInum(parentInode.getParent()).
-					(dirInodeType)
-				break
-			}
-		}
-	}
-	for i, j := 0, len(path) - 1; i < j; {
-		path[i], path[j] = path[j], path[i]
-		i++
-		j--
-	}
-	pathString := "/" + strings.Join(path, "/")
-	return pathString, nil
-}
-
-
-func parsePath(name string) []string {
+func parsePath(name string) ([]string, bool) {
 	path := strings.Split(name, "/")
+	isAbs := false
 	out := 0
 	movesForward := 0
 	for in := 0; in < len(path); in++ {
@@ -337,7 +253,8 @@ func parsePath(name string) []string {
 			if in > 0 || len(path) == 1 {
 				continue
 			}
-			elem = "/"
+			isAbs = true
+			continue
 		} else if elem == "." && in > 0 && in < len(path) - 1 {
 			continue
 		} else if elem == ".." {
@@ -355,13 +272,13 @@ func parsePath(name string) []string {
 		path[out] = elem
 		out++
 	}
-	return path[:out]
+	return path[:out], isAbs
 }
 
 
 func (mos *MemOS) open(filename string, flags int, mode uint64) (*mfsOpenFile, error) {
 	numSymlinks := 0
-	mount, dirInode, inode, name, err := mos.inodeAtPathWithParent(mos.cwd, filename)
+	mount, dirInode, inode, name, path, err := mos.inodeAtPathWithParent(mos.cwd, filename)
 	symlinkLoop:
 	if err != nil {
 		return nil, err
@@ -373,7 +290,7 @@ func (mos *MemOS) open(filename string, flags int, mode uint64) (*mfsOpenFile, e
 		if !mos.hasWritePermission(dirInode) {
 			return nil, EACCES
 		}
-		inode, err = mount.addInode(dirInode, name, newBaseFileInode(nil))
+		inode, err = mount.addFileInode(dirInode, name)
 		if err != nil {
 			return nil, err
 		}
@@ -386,7 +303,7 @@ func (mos *MemOS) open(filename string, flags int, mode uint64) (*mfsOpenFile, e
 		if numSymlinks >= maxSymlinks {
 			return nil, ELOOP
 		}
-		mount, dirInode, inode, name, err = mos.inodeAtPathWithParent(
+		mount, dirInode, inode, name, path, err = mos.inodeAtPathWithParent(
 			&mfsOpenFile{mount: mount, inode: dirInode},
 			linkInode.getLinkTarget())
 		goto symlinkLoop
@@ -400,14 +317,13 @@ func (mos *MemOS) open(filename string, flags int, mode uint64) (*mfsOpenFile, e
 			fileInode.truncateFile()
 		}
 	}
-	pathname, err := mos.findAbsolutePath(mount, dirInode, inode)
-	of.abspath = pathname
+	of.abspath = path.toString()
 	return of, err
 }
 
 
 func (mos *MemOS) mkdir(dirname string, perm FileMode) error {
-	mount, dirInode, inode, name, err := mos.inodeAtPathWithParent(mos.cwd, dirname)
+	mount, dirInode, inode, name, _, err := mos.inodeAtPathWithParent(mos.cwd, dirname)
 	if err != nil {
 		return err
 	}
@@ -417,7 +333,7 @@ func (mos *MemOS) mkdir(dirname string, perm FileMode) error {
 	if !mos.hasWritePermission(dirInode) {
 		return EACCES
 	}
-	inode, err = mount.addInode(dirInode, name, newBaseDirInode(""))
+	inode, err = mount.addDirInode(dirInode, name)
 	if err != nil {
 		return err
 	}
@@ -453,7 +369,7 @@ func (mos *MemOS) mkdirAll(path string, perm FileMode) error {
 	}
 	err = mos.mkdir(path, perm)
 	if err != nil {
-		_, _, inode, _, err2 := mos.inodeAtPathWithParent(mos.cwd, path)
+		_, _, inode, _, _, err2 := mos.inodeAtPathWithParent(mos.cwd, path)
 		if err2 != nil || !inode.isDir() {
 			return err
 		}
@@ -466,7 +382,7 @@ func (mos *MemOS) symlink(target, linkname string) error {
 	if len(target) == 0 {
 		return ENOENT
 	}
-	mount, dirInode, inode, name, err := mos.inodeAtPathWithParent(mos.cwd, linkname)
+	mount, dirInode, inode, name, _, err := mos.inodeAtPathWithParent(mos.cwd, linkname)
 	if err != nil {
 		return err
 	}
@@ -476,7 +392,7 @@ func (mos *MemOS) symlink(target, linkname string) error {
 	if !mos.hasWritePermission(dirInode) {
 		return EACCES
 	}
-	inode, err = mount.addInode(dirInode, name, newBaseLinkInode())
+	inode, err = mount.addLinkInode(dirInode, name)
 	if err != nil {
 		return err
 	}
@@ -486,7 +402,7 @@ func (mos *MemOS) symlink(target, linkname string) error {
 
 
 func (mos *MemOS) link(oldname, newname string) error {
-	oldmount, _, oldInode, _, err := mos.inodeAtPathWithParent(mos.cwd, oldname)
+	oldmount, _, oldInode, _, _, err := mos.inodeAtPathWithParent(mos.cwd, oldname)
 	if err != nil {
 		return err
 	}
@@ -496,7 +412,7 @@ func (mos *MemOS) link(oldname, newname string) error {
 	if oldInode.isDir() {
 		return EPERM
 	}
-	newmount, dirInode, newInode, name, err := mos.inodeAtPathWithParent(mos.cwd, newname)
+	newmount, dirInode, newInode, name, _, err := mos.inodeAtPathWithParent(mos.cwd, newname)
 	if err != nil {
 		return err
 	}
@@ -519,7 +435,7 @@ func (mos *MemOS) link(oldname, newname string) error {
 
 
 func (mos *MemOS) mkfifo(pathname string, perm FileMode) error {
-	mount, dirInode, inode, name, err := mos.inodeAtPathWithParent(mos.cwd, pathname)
+	mount, dirInode, inode, name, _, err := mos.inodeAtPathWithParent(mos.cwd, pathname)
 	if err != nil {
 		return err
 	}
@@ -529,7 +445,7 @@ func (mos *MemOS) mkfifo(pathname string, perm FileMode) error {
 	if !mos.hasWritePermission(dirInode) {
 		return EACCES
 	}
-	inode, err = mount.addInode(dirInode, name, newBaseFifoInode())
+	inode, err = mount.addFifoInode(dirInode, name)
 	if err != nil {
 		return err
 	}
@@ -599,7 +515,7 @@ func (mos *MemOS) chtimes(name string, atime time.Time, mtime time.Time) error {
 
 
 func (mos *MemOS) remove(pathname string) error {
-	mount, dirInode, inode, name, err := mos.inodeAtPathWithParent(mos.cwd, pathname)
+	mount, dirInode, inode, name, _, err := mos.inodeAtPathWithParent(mos.cwd, pathname)
 	if err != nil {
 		return err
 	}
@@ -624,7 +540,7 @@ func (mos *MemOS) remove(pathname string) error {
 
 
 func (mos *MemOS) removeAll(path string) error {
-	_, _, inode, _, err := mos.inodeAtPathWithParent(mos.cwd, path)
+	_, _, inode, _, _, err := mos.inodeAtPathWithParent(mos.cwd, path)
 	if err != nil {
 		return err
 	}
@@ -673,7 +589,7 @@ func (mos *MemOS) mount(source, mtpoint, fstype string, flgs uintptr, options st
 	} else if (flgs & syscall.MS_MOVE) > 0 {
 		return ns.move_mount(mtpointOpen, mos, source)
 	}
-	return ns.mount(mos, source, mtpointOpen, fstype, flgs)
+	return ns.mount(mos, source, mtpointOpen, fstype, flgs, options)
 }
 
 

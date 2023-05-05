@@ -39,6 +39,11 @@ func StDevToMajorMinor(st_dev uint64) (int, int) {
 	return int(st_dev >> 8), int(st_dev & 0xFF)
 }
 
+func StDevToString(st_dev uint64) string {
+	maj, min := StDevToMajorMinor(st_dev)
+	return MajorMinorToString(maj, min)
+}
+
 func StDevForUnnamedDevice(st_dev uint64) bool {
 	// From devices.txt: major numbers 0, 144, 145, and 146 are for unnamed devices
 	return st_dev < 256 || (st_dev >= 144 * 256 && st_dev < 147 * 256)

@@ -54,6 +54,8 @@ func (ns *namespaceType) makeFilesystem(major, minor int, fstype, source string)
 	switch fstype {
 	case "devtmpfs":
 		makeFS = newDeviceFilesystem
+	case "overlay":
+		makeFS = newOverlayFilesystem
 	default:
 		makeFS = newStorageFilesystem
 	}
@@ -69,8 +71,13 @@ func (ns *namespaceType) makeFilesystem(major, minor int, fstype, source string)
 	return st_dev, nil
 }
 
+func (ns *namespaceType) removeFilesystem(st_dev uint64) {
+	delete(ns.devices, st_dev)
+}
 
-func (ns *namespaceType) addProcess(mos *MemOS, mnt *mountType, rootInode inodeType, rootPath string) error {
+
+func (ns *namespaceType) addProcess(mos *MemOS, mnt *mountType, rootInode inodeType,
+		rootPath string) error {
 	pid := mos.pid
 	if pid < 1 {
 		pid = ns.nextPid
@@ -116,6 +123,10 @@ func (ns *namespaceType) processIsRegistered(mos *MemOS) bool {
 func (ns *namespaceType) removeProcess(mos *MemOS) error {
 	delete(ns.processes, mos.pid)
 	return nil
+}
+
+func (ns *namespaceType) process1() *MemOS {
+	return ns.processes[1]
 }
 
 
@@ -237,6 +248,39 @@ func (ns *namespaceType) bind_mount(mtpoint *mfsOpenFile, source string, flgs ui
 	return nil
 }
 
+func (ns *namespaceType) overlay_mount(mtpoint *mfsOpenFile, optionMap map[string]string,
+		flgs uintptr) error {
+	st_dev, err := ns.makeFilesystem(-1, -1, "overlay", "overlay")
+	if err != nil {
+		return err
+	}
+	mnt, err := newMount(ns, st_dev, overlayFS_root_ino, mtpoint.mount, mtpoint.inode.ino())
+	if err != nil {
+		ns.removeFilesystem(st_dev)
+		return err
+	}
+	mnt.ephemeralFilesystem = true
+	pid1 := ns.processes[1]
+	for _, dir := range []struct{key string; openFile **mfsOpenFile} {
+		{"upperdir", &mnt.sourceDir},
+		{"lowerdir", &mnt.source2Dir},
+		{"workdir", &mnt.workDir},
+	} {
+		var openFile *mfsOpenFile
+		openFile, err = pid1.open(optionMap[dir.key], O_RDONLY, 0)
+		if err != nil {
+			break
+		}
+		*dir.openFile = openFile
+		pid1.hideFD(openFile)
+	}
+	if err != nil {
+		mnt.umount(0)
+		return err
+	}
+	return ns.devices[st_dev].(*overlayFilesystem).init(ns, mnt)
+}
+
 func (ns *namespaceType) change_mount_type(mtpoint *mfsOpenFile, flgs uintptr) error {
 	return EINVAL
 }
@@ -246,9 +290,10 @@ func (ns *namespaceType) move_mount(mtpoint *mfsOpenFile, mos *MemOS, source str
 }
 
 func (ns *namespaceType) mount(mos *MemOS, source string, mtpoint *mfsOpenFile, fstype string,
-		flgs uintptr) error {
+		flgs uintptr, options string) error {
 	var st_dev uint64
 	var err error
+	optionMap := ParseMountOptions(options)
 	switch fstype {
 	case "tmpfs", "proc", "sysfs", "devtmpfs", "devpts", "securityfs":
 		st_dev, err = ns.makeFilesystem(-1, -1, fstype, source)
@@ -256,7 +301,7 @@ func (ns *namespaceType) mount(mos *MemOS, source string, mtpoint *mfsOpenFile, 
 			return err
 		}
 	case "overlay":
-		return EINVAL
+		return ns.overlay_mount(mtpoint, optionMap, flgs)
 	default:
 		sourceOpen, err := mos.mfsOpenFileAtPath(source)
 		if err != nil {

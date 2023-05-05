@@ -29,7 +29,7 @@ func newStorageFilesystem(st_dev uint64, fstype, source string, ns *namespaceTyp
 			inodes: []inodeType{nil},
 		},
 	}
-	inode, _ := fs.addInode(nil, "", newBaseDirInode(""))
+	inode, _ := fs.addInode(nil, "", newBaseDirInode())
 	inode.applyUmask(initUmask)
 	return fs, nil
 }

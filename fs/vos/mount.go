@@ -4,10 +4,12 @@
 package vos
 
 
+
 type mountType struct {
 //	root, mountpoint, options string
 //	source, source2, workdir string
 	ns *namespaceType
+	fs filesystemInstance
 	st_dev, root_ino uint64
 //	index, mounted_in int
 	mounted_in *mountType
@@ -15,12 +17,15 @@ type mountType struct {
 	sourceDir, source2Dir, workDir *mfsOpenFile
 	openFiles map[pidFdType]*mfsOpenFile
 	mountpoints map[uint64]*mountType
+	ephemeralFilesystem bool
 }
 
 
 type pidFdType struct {
 	pid, fd int
 }
+
+
 
 
 func newMount(ns *namespaceType, st_dev, root_ino uint64, mounted_in *mountType,
@@ -34,6 +39,7 @@ func newMount(ns *namespaceType, st_dev, root_ino uint64, mounted_in *mountType,
 	}
 	mount := &mountType{
 		ns: ns,
+		fs: ns.devices[st_dev],
 		st_dev: st_dev,
 		root_ino: root_ino,
 		mounted_in: mounted_in,
@@ -56,12 +62,6 @@ func (mount *mountType) inodeByInum(inum uint64) inodeType {
 
 func (mount *mountType) rootInode() dirInodeType {
 	return mount.inodeByInum(mount.root_ino).(dirInodeType)
-}
-
-
-func (mount *mountType) addInode(dirInode dirInodeType, name string, inode inodeType,
-		) (inodeType, error) {
-	return mount.ns.devices[mount.st_dev].addInode(dirInode, name, inode)
 }
 
 
@@ -89,9 +89,40 @@ func (mount *mountType) umount(flags int) error {
 	if mount.workDir != nil {
 		mount.workDir.Close()
 	}
+	if mount.ephemeralFilesystem {
+		mount.ns.removeFilesystem(mount.st_dev)
+	}
 	return nil
 }
 
+
+func (mount *mountType) addFileInode(dir dirInodeType, name string) (inodeType, error) {
+	return mount.fs.addInode(dir, name, mount.fs.newFileInode())
+}
+
+func (mount *mountType) addDirInode(dir dirInodeType, name string) (inodeType, error) {
+	return mount.fs.addInode(dir, name, mount.fs.newDirInode())
+}
+
+func (mount *mountType) addLinkInode(dir dirInodeType, name string) (inodeType, error) {
+	return mount.fs.addInode(dir, name, mount.fs.newLinkInode())
+}
+
+func (mount *mountType) addFifoInode(dir dirInodeType, name string) (inodeType, error) {
+	return mount.fs.addInode(dir, name, mount.fs.newFifoInode())
+}
+
+func (mount *mountType) addSockInode(dir dirInodeType, name string) (inodeType, error) {
+	return mount.fs.addInode(dir, name, mount.fs.newSockInode())
+}
+
+func (mount *mountType) addChardevInode(dir dirInodeType, name string) (inodeType, error) {
+	return mount.fs.addInode(dir, name, mount.fs.newChardevInode(0, nil, nil))
+}
+
+func (mount *mountType) addBlockdevInode(dir dirInodeType, name string) (inodeType, error) {
+	return mount.fs.addInode(dir, name, mount.fs.newBlockdevInode(0))
+}
 
 
 /*

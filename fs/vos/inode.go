@@ -1,4 +1,4 @@
-// Copyright © 2022 Michael Thompson
+// Copyright © 2022, 2023 Michael Thompson
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 package vos
@@ -12,6 +12,13 @@ import (
 )
 
 
+const (
+	// st_mode permission-bit masks declared in kernel sources but not in <sys/stat.h>
+	s_IRWXUGO = 0777	// bits which umask affects: normal permissions
+	s_IALLUGO = 07777	// all permissions including setUID, setGID, and stick bit
+)
+
+
 type inodeType interface {
 	nodeType() uint
 	ino() uint64
@@ -21,6 +28,7 @@ type inodeType interface {
 	gid() uint64
 	nlink() uint64
 	setDevIno(uint64, uint64)
+	sameDevIno(uint64, uint64) bool
 	setUidGid(uint64, uint64)
 	decrementNlinks() bool
 	incrementNlinks() error
@@ -37,27 +45,31 @@ type inodeType interface {
 	size() int64
 	Stat(*Stat_t) error
 	init(uint) error
-	open(*mfsOpenFile)
+	setReadonlyInode(inodeType)
+	getReadonlyInode() inodeType
+	copyUp() error
+	open(*mfsOpenFile) error
 	close(*mfsOpenFile)
+	getMetadata() *inodeMetadataTransferRecord
+	setMetadata(*inodeMetadataTransferRecord) error
 }
 
 type mfsInodeBase struct {
 	st_type uint
 	st_dev, st_ino, st_mode, st_nlink, st_uid, st_gid, st_parent uint64
 	st_atim, st_mtim, st_ctim syscall.Timespec
+	readonlyInode inodeType
 }
 
 type mfsFileInodeBase struct {
 	mfsInodeBase
 	contents []byte
-	fd File
 }
 
 type mfsDirInodeBase struct {
 	mfsInodeBase
-	parent_ino uint64
+	parent dirInodeType
 	entries map[string]inodeType
-	readPath string
 }
 
 type mfsLinkInodeBase struct {
@@ -68,6 +80,10 @@ type mfsLinkInodeBase struct {
 type mfsDeviceInodeBase struct {
 	mfsInodeBase
 	st_rdev uint64
+}
+
+type mfsSockInodeBase struct {
+	mfsInodeBase
 }
 
 type mfsFifoInodeBase struct {
@@ -83,6 +99,16 @@ type mfsChardevInodeBase struct {
 
 type mfsBlockdevInodeBase struct {
 	mfsDeviceInodeBase
+}
+
+
+type inodeMetadataTransferRecord struct {
+	st_type uint
+	st_mode, st_uid, st_gid, st_rdev uint64
+	st_atim, st_mtim, st_ctim syscall.Timespec
+	linkTarget string
+	reader io.Reader
+	writer io.Writer
 }
 
 
@@ -111,8 +137,8 @@ type dirInodeType interface {
 	direntMap() map[string]inodeType
 	rawDirentMap() map[string]inodeType
 	setDirent(name string, entry inodeType) error
-	getParent() uint64
-	setParent(p uint64)
+	getParent() dirInodeType
+	setParent(dirInodeType)
 }
 
 type linkInodeType interface {
@@ -179,7 +205,85 @@ func (ino *mfsInodeBase) setDevIno(st_dev, st_ino uint64) {
 	ino.st_ino = st_ino
 }
 
-func (ino *mfsInodeBase) open(of *mfsOpenFile) {
+func (ino *mfsInodeBase) sameDevIno(st_dev, st_ino uint64) bool {
+	return st_dev == ino.st_dev && st_ino == ino.st_ino
+}
+
+func (ino *mfsInodeBase) setReadonlyInode(inode inodeType) {
+	ino.readonlyInode = inode
+}
+
+func (ino *mfsInodeBase) getReadonlyInode() inodeType {
+	return ino.readonlyInode
+}
+
+func (ino *mfsInodeBase) copyUp() error {
+	return nil
+}
+
+func (ino *mfsInodeBase) getMetadata() *inodeMetadataTransferRecord {
+	return &inodeMetadataTransferRecord{
+		st_type: ino.st_type,
+		st_mode: ino.st_mode,
+		st_uid: ino.st_uid,
+		st_gid: ino.st_gid,
+		st_atim: ino.st_atim,
+		st_mtim: ino.st_mtim,
+		st_ctim: ino.st_ctim,
+	}
+}
+
+func (ino *mfsInodeBase) setMetadata(rec *inodeMetadataTransferRecord) error {
+	if rec.st_type != ino.st_type {
+		return EINVAL
+	}
+	ino.st_mode = rec.st_mode
+	ino.st_uid = rec.st_uid
+	ino.st_gid = rec.st_gid
+	ino.st_atim = rec.st_atim
+	ino.st_mtim = rec.st_mtim
+	ino.st_ctim = rec.st_ctim
+	return nil
+}
+
+//Will migrate to foreign-filesystem handler
+func (ino *mfsInodeBase) copyUpMetadata(keepReadonlyInode bool) (inodeType, error) {
+	if readonlyInode := ino.readonlyInode; readonlyInode != nil {
+		var stat_buf Stat_t
+		if !keepReadonlyInode {
+			ino.readonlyInode = nil
+		}
+		err := readonlyInode.Stat(&stat_buf)
+		if err != nil {
+			return readonlyInode, err
+		}
+		ino.setPerms(uint64(stat_buf.Mode))
+		ino.st_uid = uint64(stat_buf.Uid)
+		ino.st_gid = uint64(stat_buf.Gid)
+		ino.st_atim = stat_buf.Atim
+		ino.st_mtim = stat_buf.Mtim
+		ino.st_ctim = stat_buf.Ctim
+		return readonlyInode, nil
+	}
+	return nil, nil
+}
+
+//Will migrate to foreign-filesystem handler
+func (ino *mfsInodeBase) setMetadataFromInode(source inodeType) {
+	var stat_buf Stat_t
+	err := source.Stat(&stat_buf)
+	if err == nil {
+		ino.setPerms(uint64(stat_buf.Mode))
+		ino.st_uid = uint64(stat_buf.Uid)
+		ino.st_gid = uint64(stat_buf.Gid)
+		ino.st_atim = stat_buf.Atim
+		ino.st_mtim = stat_buf.Mtim
+		ino.st_ctim = stat_buf.Ctim
+	}
+}
+
+func (ino *mfsInodeBase) open(of *mfsOpenFile) error {
+	return nil
 }
 
 func (ino *mfsInodeBase) close(of *mfsOpenFile) {
@@ -210,6 +314,7 @@ func (ino *mfsInodeBase) gid() uint64 {
 }
 
 func (ino *mfsInodeBase) setUidGid(uid, gid uint64) {
+	ino.copyUp()
 	ino.st_uid = uid
 	ino.st_gid = gid
 }
@@ -231,10 +336,12 @@ func (ino *mfsInodeBase) getMtime() time.Time {
 }
 
 func (ino *mfsInodeBase) setMtimeNow() {
+	ino.copyUp()
 	ino.st_mtim = timeToTimespec(time.Now())
 }
 
 func (ino *mfsInodeBase) setAllTimesNow() {
+	ino.copyUp()
 	timespec := timeToTimespec(time.Now())
 	ino.st_atim = timespec
 	ino.st_ctim = timespec
@@ -242,19 +349,23 @@ func (ino *mfsInodeBase) setAllTimesNow() {
 }
 
 func (ino *mfsInodeBase) setAtime(tm time.Time) {
+	ino.copyUp()
 	ino.st_atim = timeToTimespec(tm)
 }
 
 func (ino *mfsInodeBase) setMtime(tm time.Time) {
+	ino.copyUp()
 	ino.st_mtim = timeToTimespec(tm)
 }
 
 func (ino *mfsInodeBase) setPerms(perms uint64) {
-	ino.st_mode = uint64(int64(ino.st_mode) & ^0777) | (perms & 0777)
+	ino.copyUp()
+	ino.st_mode = uint64(int64(ino.st_mode) & ^s_IALLUGO) | (perms & s_IALLUGO)
 }
 
 func (ino *mfsInodeBase) applyUmask(umask uint64) {
-	ino.st_mode &= ^(0777 & umask)
+	// Normal RWX bits only; see src/linux/sys.c in the kernel sources
+	ino.st_mode &= ^(s_IRWXUGO & umask)
 }
 
 func (ino *mfsInodeBase) nlink() uint64 {
@@ -337,8 +448,8 @@ func (ino *mfsInodeBase) isSeekable() bool {
 }
 
 
-func newBaseFileInode(fd File) *mfsFileInodeBase {
-	inode := &mfsFileInodeBase{fd: fd}
+func newBaseFileInode() *mfsFileInodeBase {
+	inode := &mfsFileInodeBase{}
 	inode.init(nodeTypeFile)
 	return inode
 }
@@ -357,12 +468,8 @@ func (ino *mfsFileInodeBase) readFile(buf []byte, start int64) (int, error) {
 	if start < 0 {
 		return 0, EINVAL
 	}
-	if ino.fd != nil {
-		_, err := ino.fd.Seek(start, SEEK_SET)
-		if err != nil {
-			return 0, EINVAL
-		}
-		return ino.fd.Read(buf)
+	if ino.readonlyInode != nil {
+		return ino.readonlyInode.(fileInodeType).readFile(buf, start)
 	}
 	readLen := int64(len(ino.contents)) - start
 	if readLen < 0 {
@@ -382,7 +489,10 @@ func (ino *mfsFileInodeBase) writeFile(buf []byte, start int64) (int, error) {
 	}
 	lenToWrite := len(buf)
 	contentLen := len(ino.contents)
-	if int(start) < contentLen {
+	if start == 0 && lenToWrite >= contentLen {
+		ino.contents = buf
+		buf = buf[:0]
+	} else if int(start) < contentLen {
 		toModify := contentLen - int(start)
 		if toModify > lenToWrite {
 			toModify = lenToWrite
@@ -405,12 +515,45 @@ func (ino *mfsFileInodeBase) truncateFile() error {
 	return nil
 }
 
+func (ino *mfsFileInodeBase) open(of *mfsOpenFile) error {
+	if of.writable && ino.readonlyInode != nil {
+		ino.copyUp()
+	}
+	return nil
+}
+
+func (ino *mfsFileInodeBase) copyUp() error {
+	if ino.readonlyInode != nil {
+		buf := make([]byte, ino.readonlyInode.(fileInodeType).size())
+		_, err := ino.readonlyInode.(fileInodeType).readFile(buf, 0)
+		if err != nil {
+			return err
+		}
+		_, err = ino.writeFile(buf, 0)
+		if err != nil {
+			return err
+		}
+		ino.setMetadata(ino.readonlyInode.getMetadata())
+		ino.setMtimeNow()
+		ino.readonlyInode = nil
+	}
+	return nil
+}
 
 
-func newBaseDirInode(readPath string) *mfsDirInodeBase {
-	inode := &mfsDirInodeBase{entries: map[string]inodeType{}, readPath: readPath}
+
+func newBaseDirInode() *mfsDirInodeBase {
+	inode := &mfsDirInodeBase{entries: map[string]inodeType{}}
 	inode.init(nodeTypeDir)
 	return inode
+}
+
+func (ino *mfsDirInodeBase) copyUp() error {
+	if ino.readonlyInode != nil {
+		ino.setMetadata(ino.readonlyInode.getMetadata())
+		ino.setMtimeNow()
+	}
+	return nil
 }
 
 func (ino *mfsDirInodeBase) isDir() bool {
@@ -438,15 +581,16 @@ func (ino *mfsDirInodeBase) setDirent(name string, entry inodeType) error {
 	} else {
 		ino.entries[name] = entry
 	}
+	ino.setMtimeNow()
 	return nil
 }
 
-func (ino *mfsDirInodeBase) getParent() uint64 {
-	return ino.parent_ino
+func (ino *mfsDirInodeBase) getParent() dirInodeType {
+	return ino.parent
 }
 
-func (ino *mfsDirInodeBase) setParent(p uint64) {
-	ino.parent_ino = p
+func (ino *mfsDirInodeBase) setParent(p dirInodeType) {
+	ino.parent = p
 }
 
 
@@ -456,12 +600,33 @@ func newBaseLinkInode() *mfsLinkInodeBase {
 	return inode
 }
 
+func (ino *mfsLinkInodeBase) copyUp() error {
+	if ino.readonlyInode != nil {
+		ino.setMetadata(ino.readonlyInode.getMetadata())
+		ino.readonlyInode = nil
+	}
+	return nil
+}
+
+func (ino *mfsLinkInodeBase) getMetadata() *inodeMetadataTransferRecord {
+	rec := ino.mfsInodeBase.getMetadata()
+	rec.linkTarget = ino.target
+	return rec
+}
+
+func (ino *mfsLinkInodeBase) setMetadata(rec *inodeMetadataTransferRecord) error {
+	err := ino.mfsInodeBase.setMetadata(rec)
+	ino.target = rec.linkTarget
+	return err
+}
+
 func (ino *mfsLinkInodeBase) getLinkTarget() string {
 	return ino.target
 }
 
 func (ino *mfsLinkInodeBase) setLinkTarget(target string) error {
 	ino.target = target
+	ino.setMtimeNow()
 	return nil
 }
 
@@ -496,6 +661,13 @@ func (ino *mfsFifoInodeBase) writeFifo(buf []byte) (int, error) {
 }
 
 
+func newBaseSockInode() *mfsSockInodeBase {
+	inode := &mfsSockInodeBase{}
+	inode.init(nodeTypeSock)
+	return inode
+}
+
+
 func (ino *mfsDeviceInodeBase) getRdev() uint64 {
 	return ino.st_rdev
 }
@@ -512,6 +684,30 @@ func newBaseChardevInode(st_rdev uint64, reader io.Reader, writer io.Writer) *mf
 	inode.st_rdev = st_rdev
 	inode.init(nodeTypeCharDev)
 	return inode
+}
+
+func (ino *mfsChardevInodeBase) copyUp() error {
+	if ino.readonlyInode != nil {
+		ino.setMetadata(ino.readonlyInode.getMetadata())
+		ino.readonlyInode = nil
+	}
+	return nil
+}
+
+func (ino *mfsChardevInodeBase) getMetadata() *inodeMetadataTransferRecord {
+	rec := ino.mfsInodeBase.getMetadata()
+	rec.st_rdev = ino.st_rdev
+	rec.reader = ino.reader
+	rec.writer = ino.writer
+	return rec
+}
+
+func (ino *mfsChardevInodeBase) setMetadata(rec *inodeMetadataTransferRecord) error {
+	err := ino.mfsInodeBase.setMetadata(rec)
+	rec.st_rdev = ino.st_rdev
+	rec.reader = ino.reader
+	rec.writer = ino.writer
+	return err
 }
 
 func (ino *mfsChardevInodeBase) isSeekable() bool {
@@ -538,5 +734,53 @@ func newBaseBlockdevInode(st_rdev uint64) *mfsBlockdevInodeBase {
 	inode.st_rdev = st_rdev
 	inode.init(nodeTypeBlockDev)
 	return inode
+}
+
+func (ino *mfsBlockdevInodeBase) copyUp() error {
+	if ino.readonlyInode != nil {
+		ino.setMetadata(ino.readonlyInode.getMetadata())
+		ino.readonlyInode = nil
+	}
+	return nil
+}
+
+func (ino *mfsBlockdevInodeBase) getMetadata() *inodeMetadataTransferRecord {
+	rec := ino.mfsInodeBase.getMetadata()
+	rec.st_rdev = ino.st_rdev
+	return rec
+}
+
+func (ino *mfsBlockdevInodeBase) setMetadata(rec *inodeMetadataTransferRecord) error {
+	err := ino.mfsInodeBase.setMetadata(rec)
+	rec.st_rdev = ino.st_rdev
+	return err
+}
+
+
+
+func applyMissingDirents(target, source map[string]inodeType) map[string]inodeType {
+	if target == nil {
+		target = map[string]inodeType{}
+	}
+	for key, val := range source {
+		if _, exists := target[key]; !exists {
+			target[key] = val
+		}
+	}
+	return target
+}
+
+
+func findInodeNameInDirectory(dir dirInodeType, inode inodeType) (string, bool) {
+	st_dev := inode.dev()
+	st_ino := inode.ino()
+	if dir != nil {
+		for name, ptr := range dir.direntMap() {
+			if ptr == inode || ptr.sameDevIno(st_dev, st_ino) {
+				return name, true
+			}
+		}
+	}
+	return "", false
 }
 
