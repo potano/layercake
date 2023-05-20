@@ -18,6 +18,7 @@ type filesystemInstance interface {
 	rootInode() dirInodeType
 	addInode(dirInodeType, string, inodeType) (inodeType, error)
 	inodeByInum(uint64) inodeType
+	inodeList() []inodeType
 	getSource() string
 	getStDev() uint64
 	populateAsRequired(string, map[string]inodeType)
@@ -64,7 +65,15 @@ func (fs *baseFilesystemData) addInode(dirInode dirInodeType, name string, inode
 
 
 func (fs *baseFilesystemData) inodeByInum(ino uint64) inodeType {
-	return nil
+	if ino >= uint64(len(fs.inodes)) {
+		return nil
+	}
+	return fs.inodes[ino]
+}
+
+
+func (fs *baseFilesystemData) inodeList() []inodeType {
+	return fs.inodes
 }
 
 

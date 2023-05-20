@@ -44,6 +44,9 @@ type inodeType interface {
 	setAtime(time.Time)
 	size() int64
 	Stat(*Stat_t) error
+	xattrByName(string) (string, bool)
+	xattrMap() map[string]string
+	setXattr(string, string)
 	init(uint) error
 	setReadonlyInode(inodeType)
 	getReadonlyInode() inodeType
@@ -56,8 +59,9 @@ type inodeType interface {
 
 type mfsInodeBase struct {
 	st_type uint
-	st_dev, st_ino, st_mode, st_nlink, st_uid, st_gid, st_parent uint64
+	st_dev, st_ino, st_mode, st_nlink, st_uid, st_gid uint64
 	st_atim, st_mtim, st_ctim syscall.Timespec
+	xattrs map[string]string
 	readonlyInode inodeType
 }
 
@@ -395,6 +399,26 @@ func (ino *mfsInodeBase) incNlink() error {
 	return nil
 }
 
+func (ino *mfsInodeBase) xattrByName(name string) (string, bool) {
+	if ino.xattrs == nil {
+		return "", false
+	}
+	value, exists := ino.xattrs[name]
+	return value, exists
+}
+
+func (ino *mfsInodeBase) xattrMap() map[string]string {
+	return ino.xattrs
+}
+
+func (ino *mfsInodeBase) setXattr(name, value string) {
+	if ino.xattrs == nil {
+		ino.xattrs = map[string]string{name: value}
+	} else {
+		ino.xattrs[name] = value
+	}
+}
+
 func (ino *mfsInodeBase) baseStat(stat_buf *Stat_t) error {
 	stat_buf.Dev = uint64(ino.st_dev)
 	stat_buf.Ino = uint64(ino.st_ino)
@@ -568,7 +592,18 @@ func (ino *mfsDirInodeBase) direntByName(name string) inodeType {
 }
 
 func (ino *mfsDirInodeBase) direntMap() map[string]inodeType {
-	return ino.entries
+	if ino.readonlyInode == nil {
+		return ino.entries
+	}
+	roEntries := ino.readonlyInode.(dirInodeType).direntMap()
+	out := make(map[string]inodeType, len(ino.entries) + len(roEntries))
+	for key, val := range roEntries {
+		out[key] = val
+	}
+	for key, val := range ino.entries {
+		out[key] = val
+	}
+	return out
 }
 
 func (ino *mfsDirInodeBase) rawDirentMap() map[string]inodeType {

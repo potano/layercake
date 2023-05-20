@@ -47,14 +47,6 @@ func newDeviceFilesystem(st_dev uint64, fstype, source string, ns *namespaceType
 }
 
 
-func (fs *deviceFilesystem) inodeByInum(ino uint64) inodeType {
-	if ino >= uint64(len(fs.inodes)) {
-		return nil
-	}
-	return fs.inodes[ino]
-}
-
-
 func newDevDirInode(ns *namespaceType, devfs *deviceFilesystem, prefix string) *devDirInode {
 	inode := &devDirInode{ns: ns, devfs: devfs, prefix: prefix}
 	inode.entries = map[string]inodeType{}

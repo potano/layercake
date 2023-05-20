@@ -18,6 +18,9 @@ import (
 const (
 	overlayFS_root_ino = 1
 	whiteoutRdev = (0 << 8) + 0
+	whiteoutPerms = 0
+	opaqueXattr = "trusted.overlay.opaque"
+	opaqueXattrValue = "y"
 )
 
 type overlayFilesystem struct {
@@ -33,16 +36,17 @@ type ovfsInodeInterface interface {
 	toWritableInode() inodeType
 	getParent() dirInodeType
 	setParent(dirInodeType)
-	getUpperAndLowerInodes() (inodeType, inodeType)
-	setUpperAndLowerInodes(inodeType, inodeType)
+	getActiveInode() (inodeType, bool)
+	setActiveInode(inodeType, bool)
 }
 
 type ovfsInodeBase struct {
 	st_type uint
 	st_dev, st_ino, st_nlink uint64
 	parent dirInodeType
-	lowerInode, upperInode, activeInode inodeType
+	activeInode inodeType
 	fs *overlayFilesystem
+	pointsToUpper bool
 }
 
 type ovfsFileInode struct {
@@ -51,6 +55,7 @@ type ovfsFileInode struct {
 type ovfsDirInode struct {
 	ovfsInodeBase
 	entries map[string]inodeType
+	lowerCache map[string]inodeType
 }
 type ovfsLinkInode struct {
 	ovfsInodeBase
@@ -96,10 +101,9 @@ func (fs *overlayFilesystem) init(ns *namespaceType, mount *mountType) error {
 	fs.lowerFS = ns.devices[lowerBaseDirInode.dev()]
 	fs.workBaseDir = mount.workDir
 	rootInode := fs.newDirInode().(*ovfsDirInode)
-	fs.addInode(nil, "", rootInode)
-	rootInode.upperInode = upperBaseDirInode
-	rootInode.lowerInode = lowerBaseDirInode
-	rootInode.activeInode = upperBaseDirInode
+	fs.baseFilesystemData.addInode(nil, "", rootInode)
+	rootInode.setActiveInode(upperBaseDirInode, true)
+	rootInode.setReadonlyInode(lowerBaseDirInode)
 	return nil
 }
 
@@ -125,13 +129,13 @@ func (fs *overlayFilesystem) inodeByInum(ino uint64) inodeType {
 }
 
 
-func (fs *overlayFilesystem) makeUpperInode(dirInode dirInodeType, mergeInode ovfsInodeInterface,
+func (fs *overlayFilesystem) makeUpperInode(dirInode *ovfsDirInode, mergeInode ovfsInodeInterface,
 		) (inodeType, error) {
 	abspath := fs.upperBaseDir.abspath
 	fsPath := fs.findPathToInode(dirInode, mergeInode)
 	mergeDirInode := fs.rootInode()
 	upperDirInode := fs.upperBaseDir.inode.(dirInodeType)
-	var upperInode, lowerInode inodeType
+	var upperInode inodeType
 	var err error
 	finalPathX := len(fsPath) - 1
 	for pathX, name := range fsPath {
@@ -140,11 +144,11 @@ func (fs *overlayFilesystem) makeUpperInode(dirInode dirInodeType, mergeInode ov
 		if mergeInode == nil {
 			return nil, ENOENT
 		}
-		upperInode, lowerInode = mergeInode.getUpperAndLowerInodes()
-		if upperInode == nil {
-			upperInode = upperDirInode.direntByName(name)
-		}
-		if upperInode == nil {
+		if activeInode, isUpper := mergeInode.getActiveInode(); isUpper {
+			upperInode = activeInode
+		} else if activeInode := upperDirInode.direntByName(name); activeInode != nil {
+			upperInode = activeInode
+		} else {
 			upperInode, err = fs.upperFS.resolveFromReadonlyFS(upperDirInode, abspath)
 			if err != nil {
 				return nil, err
@@ -154,7 +158,7 @@ func (fs *overlayFilesystem) makeUpperInode(dirInode dirInodeType, mergeInode ov
 			}
 			fs.upperFS.addInode(upperDirInode, name, upperInode)
 		}
-		mergeInode.setUpperAndLowerInodes(upperInode, lowerInode)
+		mergeInode.setActiveInode(upperInode, true)
 		if mergeInode.isDir() {
 			mergeDirInode = mergeInode.(dirInodeType)
 			upperDirInode = upperInode.(dirInodeType)
@@ -173,29 +177,37 @@ func (fs *overlayFilesystem) addInode(dirInode dirInodeType, name string, inode 
 		return nil, err
 	}
 	mergeInode, inodeIsOvfs := inode.(ovfsInodeInterface)
-	var upperInode, lowerInode inodeType
-	if inodeIsOvfs {
-		upperInode, lowerInode = mergeInode.getUpperAndLowerInodes()
-		mergeInode.setParent(dirInode)
-		if upperInode != nil && lowerInode != nil {
-			return inode, nil
-		}
-	} else {
+	if !inodeIsOvfs {
 		return inode, nil
 	}
-	if mergeDir, is := dirInode.(*ovfsDirInode); is {
+	mergeInode.setParent(dirInode)
+	activeInode, _ := mergeInode.getActiveInode()
+	if activeInode != nil {
+		return inode, nil
+	}
+	mergeDir := dirInode.(*ovfsDirInode)
+	lowerInode := mergeDir.lowerCache[name]
+	upperDir, haveUpperDir := mergeDir.getActiveInode()
+	makeOpaque := false
+	if haveUpperDir && lowerInode != nil {
+		upperInode := upperDir.(dirInodeType).direntByName(name)
 		if upperInode != nil && inodeIsOvfsWhiteout(upperInode) {
-			upperDir := mergeDir.upperInode.(dirInodeType)
-			if upperDir != nil {
-				upperInode.decrementNlinks()
-				upperDir.setDirent(name, nil)
-			}
-			upperInode, err = fs.makeUpperInode(mergeDir, inode.(ovfsInodeInterface))
-			if err != nil {
-				return nil, err
-			}
+			upperInode.decrementNlinks()
+			upperDir.(dirInodeType).setDirent(name, nil)
+			makeOpaque = inode.isDir()
 		}
-		mergeInode.setUpperAndLowerInodes(upperInode, lowerInode)
+	}
+	if lowerInode != nil && !makeOpaque {
+		mergeInode.setActiveInode(lowerInode, false)
+	} else {
+		activeInode, err = fs.makeUpperInode(mergeDir, inode.(ovfsInodeInterface))
+		if err != nil {
+			return nil, err
+		}
+		if makeOpaque {
+			activeInode.setXattr(opaqueXattr, opaqueXattrValue)
+		}
+		mergeInode.setActiveInode(activeInode, true)
 	}
 	return inode, nil
 }
@@ -203,7 +215,6 @@ func (fs *overlayFilesystem) addInode(dirInode dirInodeType, name string, inode 
 
 func (fs *overlayFilesystem) resolveFromReadonlyFS(
 		dirInode dirInodeType, pathname string) (inodeType, error) {
-	isWhiteout := false
 	name := pathname
 	if ipos := strings.LastIndexByte(name, '/'); ipos >= 0 {
 		name = name[ipos + 1 :]
@@ -220,40 +231,43 @@ func (fs *overlayFilesystem) resolveFromReadonlyFS(
 	if err != nil {
 		return nil, err
 	}
-	if upperInode != nil {
-		isWhiteout = inodeIsOvfsWhiteout(upperInode)
+	if upperInode != nil && inodeIsOvfsWhiteout(upperInode) {
+		return nil, nil
 	}
 	if lowerMount != fs.lowerBaseDir.mount {
 		lowerInode = nil
 	}
-	if isWhiteout || (upperInode == nil && lowerInode == nil) {
+	if upperInode == nil && lowerInode == nil {
 		return nil, nil
 	}
 	activeInode := upperInode
+	usingUpper := true
 	if activeInode == nil {
 		activeInode = lowerInode
+		usingUpper = false
+	} else if activeInode.isDir() && lowerInode != nil && !inodeIsOpaque(activeInode) {
+		activeInode.setReadonlyInode(lowerInode)
 	}
-	inode := fs.newMergeInodeLikeOriginal(activeInode, upperInode, lowerInode, activeInode)
+	inode := fs.newMergeInodeLikeOriginal(activeInode, activeInode, usingUpper)
 	return fs.addInode(dirInode, name, inode)
 }
 
 
 func (fs *overlayFilesystem) newMergeInodeLikeOriginal(orig,
-		upperInode, lowerInode, activeInode inodeType) inodeType {
+		activeInode inodeType, usingUpper bool) inodeType {
 	nodeType := orig.nodeType()
 	base := ovfsInodeBase{
 		st_type: nodeType,
 		st_dev: orig.dev(),
 		st_ino: orig.ino(),
-		lowerInode: lowerInode,
-		upperInode: upperInode,
 		activeInode: activeInode,
+		pointsToUpper: usingUpper,
 		fs: fs}
 	switch nodeType {
 	case nodeTypeFile:
 		return &ovfsFileInode{base}
 	case nodeTypeDir:
-		return &ovfsDirInode{base, map[string]inodeType{}}
+		return &ovfsDirInode{base, map[string]inodeType{}, nil}
 	case nodeTypeLink:
 		return &ovfsLinkInode{base}
 	case nodeTypeFifo:
@@ -269,10 +283,10 @@ func (fs *overlayFilesystem) newMergeInodeLikeOriginal(orig,
 }
 
 
-func (fs *overlayFilesystem) findPathToInode(dirInode dirInodeType, inode inodeType) []string {
+func (fs *overlayFilesystem) findPathToInode(dirInode *ovfsDirInode, inode inodeType) []string {
 	var parts []string
 	for {
-		name, found := findInodeNameInDirectory(dirInode, inode)
+		name, found := dirInode.findInodeNameInDirectory(inode)
 		if !found {
 			return nil
 		}
@@ -282,7 +296,7 @@ func (fs *overlayFilesystem) findPathToInode(dirInode dirInodeType, inode inodeT
 			break
 		}
 		inode = dirInode
-		dirInode = parent
+		dirInode = parent.(*ovfsDirInode)
 	}
 	for i, j := 0, len(parts) - 1; i < j; i, j = i+1, j-1 {
 		parts[i], parts[j] = parts[j], parts[i]
@@ -300,11 +314,25 @@ func (fs *overlayFilesystem) findPathToDirectory(dirInode dirInodeType) []string
 }
 
 
+func (fs *overlayFilesystem) makeOvfsWhiteout(dirInode dirInodeType, name string) error {
+	whiteout := fs.upperFS.newChardevInode(whiteoutRdev, nil, nil)
+	whiteout.setPerms(whiteoutPerms)
+	_, err := fs.upperFS.addInode(dirInode, name, whiteout)
+	return err
+}
+
+
 func inodeIsOvfsWhiteout(inode inodeType) bool {
 	if chardev, is := inode.(deviceInodeType); is {
 		return chardev.getRdev() == whiteoutRdev
 	}
 	return false
+}
+
+
+func inodeIsOpaque(inode inodeType) bool {
+	value, _ := inode.xattrByName(opaqueXattr)
+	return value == opaqueXattrValue
 }
 
 
@@ -415,69 +443,69 @@ func (ino *ovfsInodeBase) Stat(stat_buf *Stat_t) error {
 	return ino.activeInode.Stat(stat_buf)
 }
 
+func (ino *ovfsInodeBase) xattrByName(name string) (string, bool) {
+	return ino.activeInode.xattrByName(name)
+}
+
+func (ino *ovfsInodeBase) xattrMap() map[string]string {
+	return ino.activeInode.xattrMap()
+}
+
+func (ino *ovfsInodeBase) setXattr(name, value string) {
+	ino.toWritableInode().setXattr(name, value)
+}
+
 func (ino *ovfsInodeBase) init(tp uint) error {
 	return ino.activeInode.init(tp)
 }
 
 func (ino *ovfsInodeBase) setReadonlyInode(inode inodeType) {
-	if ino.activeInode == nil || ino.activeInode == ino.lowerInode {
+	if ino.activeInode == nil {
 		ino.activeInode = inode
+		ino.pointsToUpper = false
+		return
 	}
-	ino.lowerInode = inode
+	activeInode := ino.activeInode
+	newDev, newIno := inode.dev(), inode.ino()
+	for activeInode.dev() != newDev || activeInode.ino() != newIno {
+		if upperRO := activeInode.getReadonlyInode(); upperRO != nil {
+			activeInode = upperRO
+		} else {
+			activeInode.setReadonlyInode(inode)
+			break
+		}
+	}
 }
 
 func (ino *ovfsInodeBase) getReadonlyInode() inodeType {
-	return ino.lowerInode
+	if ino.pointsToUpper {
+		return ino.activeInode.getReadonlyInode()
+	}
+	return ino.activeInode
 }
 
 func (ino *ovfsInodeBase) copyUp() error {
-	if ino.activeInode != nil && ino.activeInode == ino.upperInode {
+	if ino.pointsToUpper || ino.activeInode == nil {
 		return nil
 	}
-	upperInode := ino.upperInode
-	lowerInode := ino.lowerInode
+	activeInode := ino.activeInode
 	dirInode := ino.getParent().(*ovfsDirInode)
-	if upperInode != nil {
-		upperInode.copyUp()
-		if lowerInode != nil {
-			lowerInode.copyUp()
-			if roInode := upperInode.getReadonlyInode(); roInode == nil {
-				upperInode.setReadonlyInode(lowerInode)
-				lowerInode = nil
-				upperInode.copyUp()
-			} else {
-				floatingInode := ino.fs.newMergeInodeLikeOriginal(upperInode,
-					roInode, lowerInode, roInode)
-				upperInode.setReadonlyInode(floatingInode)
-			}
-		}
-	} else {
-		var err error
-		upperInode, err = ino.fs.makeUpperInode(dirInode, ino)
+	activeInode.copyUp()
+	if !ino.pointsToUpper {
+		upperInode, err := ino.fs.makeUpperInode(dirInode, ino)
 		if err != nil {
 			return err
 		}
-		if lowerInode != nil {
-			upperInode.setReadonlyInode(lowerInode)
-			upperInode.copyUp()
-			if lowerInode.nodeType() != nodeTypeDir {
-				lowerInode = nil
-			}
-		}
+		upperInode.setReadonlyInode(activeInode)
+		upperInode.copyUp()
+		ino.activeInode = upperInode
+		ino.pointsToUpper = true
 	}
-	activeInode := upperInode
-	if upperInode == nil {
-		activeInode = lowerInode
-	}
-	ino.upperInode = upperInode
-	ino.lowerInode = lowerInode
-	ino.activeInode = activeInode
 	return nil
 }
 
 func (ino *ovfsInodeBase) open(of *mfsOpenFile) error {
-	if of.writable && (ino.lowerInode != nil ||
-			(ino.upperInode != nil && ino.getReadonlyInode() != nil)) {
+	if of.writable && !ino.pointsToUpper {
 		ino.copyUp()
 	}
 	return nil
@@ -496,10 +524,10 @@ func (ino *ovfsInodeBase) getMetadata() *inodeMetadataTransferRecord {
 }
 
 func (ino *ovfsInodeBase) setMetadata(rec *inodeMetadataTransferRecord) error {
-	if ino.upperInode == nil {
+	if !ino.pointsToUpper {
 		return EINVAL
 	}
-	return ino.upperInode.setMetadata(rec)
+	return ino.activeInode.setMetadata(rec)
 }
 
 func (ino *ovfsInodeBase) toWritableInode() inodeType {
@@ -515,18 +543,13 @@ func (ino *ovfsInodeBase) setParent(p dirInodeType) {
 	ino.parent = p
 }
 
-func (ino *ovfsInodeBase) getUpperAndLowerInodes() (inodeType, inodeType) {
-	return ino.upperInode, ino.lowerInode
+func (ino *ovfsInodeBase) getActiveInode() (inodeType, bool) {
+	return ino.activeInode, ino.pointsToUpper
 }
 
-func (ino *ovfsInodeBase) setUpperAndLowerInodes(upperInode, lowerInode inodeType) {
-	activeInode := upperInode
-	if activeInode == nil {
-		activeInode = lowerInode
-	}
-	ino.upperInode = upperInode
-	ino.lowerInode = lowerInode
+func (ino *ovfsInodeBase) setActiveInode(activeInode inodeType, isUpper bool) {
 	ino.activeInode = activeInode
+	ino.pointsToUpper = isUpper
 }
 
 
@@ -541,7 +564,7 @@ func (ino *ovfsFileInode) readFile(buf []byte, start int64) (int, error) {
 }
 
 func (ino *ovfsFileInode) writeFile(buf []byte, start int64) (int, error) {
-	if ino.activeInode != ino.upperInode {
+	if !ino.pointsToUpper {
 		ino.copyUp()
 	}
 	return ino.activeInode.(fileInodeType).writeFile(buf, start)
@@ -556,6 +579,7 @@ func (fs *overlayFilesystem) newDirInode() dirInodeType {
 	return &ovfsDirInode{
 		ovfsInodeBase{st_type: nodeTypeDir, fs: fs},
 		map[string]inodeType{},
+		nil,
 	}
 }
 
@@ -564,14 +588,42 @@ func (ino *ovfsDirInode) direntByName(name string) inodeType {
 }
 
 func (ino *ovfsDirInode) direntMap() map[string]inodeType {
-	out := applyMissingDirents(map[string]inodeType{}, ino.entries)
-	if ino.upperInode != nil {
-		applyMissingDirents(out, ino.upperInode.(dirInodeType).direntMap())
+	if ino.lowerCache == nil {
+		ino.setLowerCache()
 	}
-	if ino.lowerInode != nil {
-		applyMissingDirents(out, ino.lowerInode.(dirInodeType).direntMap())
+	if !ino.pointsToUpper {
+		return ino.lowerCache
+	}
+	upperEntries := ino.activeInode.(dirInodeType).rawDirentMap()
+	out := make(map[string]inodeType, len(upperEntries) + len(ino.lowerCache))
+	for k, v := range ino.lowerCache {
+		out[k] = v
+	}
+	for k, v := range upperEntries {
+		if inodeIsOvfsWhiteout(v) {
+			delete(out, k)
+		} else {
+			out[k] = v
+		}
 	}
 	return out
+}
+
+func (ino *ovfsDirInode) setLowerCache() {
+	var lowerSource map[string]inodeType
+	if ino.pointsToUpper {
+		roInode := ino.activeInode.getReadonlyInode()
+		if roInode != nil {
+			lowerSource = roInode.(dirInodeType).direntMap()
+		}
+	} else {
+		lowerSource = ino.activeInode.(dirInodeType).direntMap()
+	}
+	out := make(map[string]inodeType, len(lowerSource))
+	for k, v := range lowerSource {
+		out[k] = v
+	}
+	ino.lowerCache = out
 }
 
 func (ino *ovfsDirInode) rawDirentMap() map[string]inodeType {
@@ -579,23 +631,53 @@ func (ino *ovfsDirInode) rawDirentMap() map[string]inodeType {
 }
 
 func (ino *ovfsDirInode) setDirent(name string, entry inodeType) error {
+	if ino.lowerCache == nil {
+		ino.setLowerCache()
+	}
+	_, lowerInodeExists := ino.lowerCache[name]
 	if entry == nil {
+		oldEnt := ino.entries[name]
 		delete(ino.entries, name)
-		if ino.lowerInode != nil && 
-				ino.lowerInode.(dirInodeType).direntByName(name) != nil &&
-				ino.upperInode.(dirInodeType).direntByName(name) == nil {
-			_, err := ino.fs.upperFS.addInode(ino.upperInode.(dirInodeType), "",
-				ino.fs.upperFS.newChardevInode(whiteoutRdev, nil, nil))
+		if _, is := oldEnt.(ovfsInodeInterface); !is {
+			return nil
+		}
+		if ino.pointsToUpper {
+			upperDir := ino.activeInode.(dirInodeType)
+			if upperInode := upperDir.direntByName(name); upperInode != nil {
+				upperInode.decrementNlinks()
+				upperDir.setDirent(name, nil)
+			}
+		} else {
+			ino.copyUp()
+		}
+		if lowerInodeExists {
+			upperDir := ino.activeInode.(dirInodeType)
+			err := ino.fs.makeOvfsWhiteout(upperDir, name)
 			if err != nil {
 				return err
 			}
 		}
 	} else {
 		ino.entries[name] = entry
+		if !ino.pointsToUpper {
+			if !lowerInodeExists {
+				ino.copyUp()
+			}
+		}
 	}
 	return nil
 }
 
+func (dir *ovfsDirInode) findInodeNameInDirectory(inode inodeType) (string, bool) {
+	st_dev := inode.dev()
+	st_ino := inode.ino()
+	for name, ptr := range dir.entries {
+		if ptr.sameDevIno(st_dev, st_ino) {
+			return name, true
+		}
+	}
+	return "", false
+}
 
 
 

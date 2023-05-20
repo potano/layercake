@@ -13,6 +13,123 @@ import (
 
 
 
+func getFSInodes(T *testing.T, ns *namespaceType, st_dev uint64) (string, uint64, []inodeType) {
+	dev := ns.devices[st_dev]
+	if fs, is := dev.(*storageFilesystem); is {
+		return fs.fstype, fs.st_dev, fs.inodes
+	} else if fs, is := dev.(*deviceFilesystem); is {
+		return fs.fstype, fs.st_dev, fs.inodes
+	} else if fs, is := dev.(*overlayFilesystem); is {
+		return fs.fstype, fs.st_dev, fs.inodes
+	} else {
+		T.Fatalf("unknown filesystem type %v", dev)
+	}
+	return "", 0, nil
+}
+
+
+func sortDirentMapKeysAndInums(entries map[string]inodeType) []string {
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for i, key := range keys {
+		keys[i] = fmt.Sprintf("%s=%d", key, entries[key].ino())
+	}
+	return keys
+}
+
+
+func inodeToDebugString(inode inodeType) string {
+	if inode == nil {
+		return "nil inode"
+	}
+	if ovfsInode, is := inode.(ovfsInodeInterface); is {
+		baseInfo := fmt.Sprintf(" %s #%d ", StDevToString(inode.dev()), inode.ino())
+		activeInode, pointsToUpper := ovfsInode.getActiveInode()
+		if pointsToUpper {
+			baseInfo += "upper: "
+		} else {
+			baseInfo += "lower: "
+		}
+		if activeInode == nil {
+			baseInfo += "NO ACTIVE INODE"
+		} else {
+			baseInfo += fmt.Sprintf("-> %s #%d",
+				StDevToString(activeInode.dev()), activeInode.ino())
+		}
+		switch inode.nodeType() {
+		case nodeTypeFile:
+			return "ovfs file" + baseInfo
+		case nodeTypeDir:
+			return "ovfs dir" + baseInfo + "; " + strings.Join(
+				sortDirentMapKeysAndInums(inode.(*ovfsDirInode).entries), "; ")
+		case nodeTypeLink:
+			return "ovfs link" + baseInfo
+		case nodeTypeSock:
+			return "ovfs socket" + baseInfo
+		case nodeTypeFifo:
+			return "ovfs FIFO" + baseInfo
+		case nodeTypeCharDev:
+			var more string
+			if pointsToUpper && inodeIsOvfsWhiteout(activeInode) {
+				more += "; whiteout"
+			}
+			return "ovfs char dev" + baseInfo + "; " +
+				StDevToString(inode.(deviceInodeType).getRdev()) + more
+		case nodeTypeBlockDev:
+			return "base block dev" + baseInfo + "; " +
+				StDevToString(inode.(deviceInodeType).getRdev())
+		default:
+			return fmt.Sprintf("unknown base device type %d", inode.nodeType())
+		}
+	} else {
+		baseInfo := fmt.Sprintf(" %s #%d %o %d:%d", StDevToString(inode.dev()), inode.ino(),
+			inode.mode(), inode.uid(), inode.gid())
+		switch inode.nodeType() {
+		case nodeTypeFile:
+			content := string(inode.(*mfsFileInodeBase).contents)
+			if len(content) > 5 {
+				content = content[:5] + "..."
+			}
+			return "base file" + baseInfo + "; \"" + content + "\""
+		case nodeTypeDir:
+			dirInode := inode.(*mfsDirInodeBase)
+			return "base dir" + baseInfo + "; " + strings.Join(
+				sortDirentMapKeysAndInums(dirInode.entries), ", ")
+		case nodeTypeLink:
+			return "base link" + baseInfo + "; -> " + inode.(*mfsLinkInodeBase).target
+		case nodeTypeSock:
+			return "base socket" + baseInfo
+		case nodeTypeFifo:
+			content := string(inode.(*mfsFifoInodeBase).contents)
+			if len(content) > 5 {
+				content = content[:5] + "..."
+			}
+			return "base FIFO" + baseInfo + "; " + content
+		case nodeTypeCharDev:
+			return "base char dev" + baseInfo + "; " +
+				StDevToString(inode.(deviceInodeType).getRdev())
+		case nodeTypeBlockDev:
+			return "base block dev" + baseInfo + "; " +
+				StDevToString(inode.(deviceInodeType).getRdev())
+		default:
+			return fmt.Sprintf("unknown base device type %d", inode.nodeType())
+		}
+	}
+	return "unknown inode"
+}
+
+
+func dumpFilesystemInodes(fs filesystemInstance) {
+	for i, ino := range fs.inodeList() {
+		fmt.Printf(" %d: %s\n", i, inodeToDebugString(ino))
+	}
+}
+
+
+
 type nsTestDevices []struct{majmin string; inodes []nsTestInode}
 type nsTestInode struct {tp uint; perms int; uid, gid, nlink uint64; contents string}
 
@@ -35,21 +152,7 @@ func checkNSDevices(ns *namespaceType, T *testing.T, testDevices nsTestDevices) 
 			T.Fatalf("expected to find device %s", spec.majmin)
 		}
 		delete(existingDevices, st_dev)
-		dev := ns.devices[st_dev]
-		var fs_st_dev uint64
-		var fs_inodes []inodeType
-		if fs, is := dev.(*storageFilesystem); is {
-			fs_st_dev = fs.st_dev
-			fs_inodes = fs.inodes
-		} else if fs, is := dev.(*deviceFilesystem); is {
-			fs_st_dev = fs.st_dev
-			fs_inodes = fs.inodes
-		} else if fs, is := dev.(*overlayFilesystem); is {
-			fs_st_dev = fs.st_dev
-			fs_inodes = fs.inodes
-		} else {
-			T.Fatalf("unknown filesystem type %v", dev)
-		}
+		_, fs_st_dev, fs_inodes := getFSInodes(T, ns, st_dev)
 		if fs_st_dev != st_dev {
 			T.Fatalf("expected filesystem %s to have st_dev %d, got %d", spec.majmin,
 				st_dev, fs_st_dev)
@@ -100,16 +203,8 @@ func checkNSDevices(ns *namespaceType, T *testing.T, testDevices nsTestDevices) 
 				contents = string(buf)
 			case nodeTypeDir:
 				dir := inode.(dirInodeType)
-				entries := dir.direntMap()
-				keys := make([]string, 0, len(entries))
-				for key := range entries {
-					keys = append(keys, key)
-				}
-				sort.Strings(keys)
-				for i, key := range keys {
-					keys[i] = fmt.Sprintf("%s=%d", key, entries[key].ino())
-				}
-				contents = strings.Join(keys, "\n")
+				entries := dir.rawDirentMap()
+				contents = strings.Join(sortDirentMapKeysAndInums(entries), "\n")
 			case nodeTypeLink:
 				contents = inode.(linkInodeType).getLinkTarget()
 			case nodeTypeFifo:
@@ -134,6 +229,128 @@ func checkNSDevices(ns *namespaceType, T *testing.T, testDevices nsTestDevices) 
 		T.Fatalf("found %d unexpected devices", len(existingDevices))
 	}
 }
+
+
+
+type ovTestDevices []struct{majmin string; inodes []ovTestInode}
+type ovTestInode struct {tp uint; upper bool; inum, nlink uint64; contents string}
+
+func checkOverlayFS(ns *namespaceType, T *testing.T, testDevices ovTestDevices) {
+	T.Helper()
+	existingDevices := make(map[uint64]bool, len(ns.devices))
+	for st_dev, fs := range ns.devices {
+		if _, is := fs.(*overlayFilesystem); is {
+			existingDevices[st_dev] = true
+		}
+	}
+	if len(testDevices) != len(existingDevices) {
+		T.Fatalf("expected to find %d overlay filesystems, found %d", len(testDevices),
+			len(existingDevices))
+	}
+	for _, spec := range testDevices {
+		major, minor, err := ParseMajorMinorString(spec.majmin)
+		if err != nil {
+			T.Fatalf("trying to parse %s: %s", spec.majmin, err)
+		}
+		st_dev, err := MajorMinorToStDev(major, minor)
+		if err != nil {
+			T.Fatalf("%s composing major=%d, minor=%d", err, major, minor)
+		}
+		if !existingDevices[st_dev] {
+			T.Fatalf("expected to find device %s", spec.majmin)
+		}
+		delete(existingDevices, st_dev)
+		fs := ns.devices[st_dev].(*overlayFilesystem)
+		_, upperStDev, upperInodes := getFSInodes(T, ns, fs.upperFS.getStDev())
+		_, lowerStDev, lowerInodes := getFSInodes(T, ns, fs.upperFS.getStDev())
+		if len(fs.inodes) != len(spec.inodes) + 1 {
+			T.Fatalf("expected filesystem %s to have %d inodes, got %d", spec.majmin,
+				len(spec.inodes), len(fs.inodes) - 1)
+		}
+		checkSideInodeConsistency := func (T *testing.T, i int, fs_st_dev uint64,
+				inode inodeType, isUpper bool, inodes []inodeType, where string,
+				want ovTestInode) {
+			var tail string
+			if inode == nil {
+				if want.inum != 0 {
+					tail = fmt.Sprintf("is missing %s inode", where)
+				}
+			} else if want.inum == 0 {
+				tail = fmt.Sprintf("has unexpected %s inode", where)
+			} else if inode.dev() != fs_st_dev {
+				tail = fmt.Sprintf("has %s inode of filesystem %s, not %s", where,
+					StDevToString(inode.dev()), StDevToString(fs_st_dev))
+			} else if inode.ino() != want.inum {
+				tail = fmt.Sprintf("has %s inode with inum %d, not %d", where,
+					inode.ino(), want.inum)
+			} else if isUpper != want.upper {
+				tail = fmt.Sprintf("inum %d unexpectedly is %s inode", want.inum,
+					where)
+			} else if inode.nodeType() != want.tp {
+				tail = fmt.Sprintf("has %s inode of type %d, not %d", where,
+					inode.nodeType(), want.tp)
+			}
+			if len(tail) > 0 {
+				T.Fatalf("device %s: merge inode %d %s", spec.majmin, i, tail)
+			}
+		}
+		for i, genericInode := range fs.inodes {
+			if i == 0 {
+				continue
+			}
+			inode, ok := genericInode.(ovfsInodeInterface)
+			if !ok {
+				T.Fatalf("device %s: inode %d is not an overlayfs inode",
+					spec.majmin, i)
+			}
+			if inode.ino() != uint64(i) {
+				T.Fatalf("device %s: inode %d does not report the correct inum",
+					spec.majmin, i)
+			}
+			if inode.dev() != st_dev {
+				T.Fatalf("device %s: inode %d should have st_dev %d, not %d",
+					spec.majmin, i, st_dev, inode.dev())
+			}
+			want := spec.inodes[i - 1]
+			if inode.nodeType() != want.tp {
+				T.Fatalf("device %s: expected inode %d to have type %d, got %d",
+					spec.majmin, i, want.tp, inode.nodeType())
+			}
+			activeInode, isUpper := inode.getActiveInode()
+			if isUpper {
+				checkSideInodeConsistency(T, i, upperStDev, activeInode, isUpper,
+					upperInodes, "upper", want)
+			} else {
+				checkSideInodeConsistency(T, i, lowerStDev, activeInode, isUpper,
+					lowerInodes, "lower", want)
+			}
+			if inode.nlink() != want.nlink {
+				T.Fatalf("device %s: expected inode %d to have %d links, got %d",
+					spec.majmin, i, want.nlink, inode.nlink())
+			}
+			var contents string
+			switch want.tp {
+			case nodeTypeFile:
+				file := inode.(fileInodeType)
+				buf := make([]byte, file.size())
+				file.readFile(buf, 0)
+				contents = string(buf)
+			case nodeTypeDir:
+				entries := inode.(dirInodeType).direntMap()
+				contents = strings.Join(sortDirentMapKeysAndInums(entries), "\n")
+			}
+			if contents != want.contents {
+				T.Fatalf("device %s, inode %d: contents not '%s', but '%s'",
+					spec.majmin, i, want.contents, contents)
+			}
+		}
+	}
+	if len(existingDevices) > 0 {
+		T.Fatalf("failed to consider %d overlay filesystems", len(existingDevices))
+	}
+}
+
+
 
 type nsTestMounts []struct{
 	major, minor, root_ino, mounted_in, mounted_at int
@@ -249,6 +466,7 @@ func rwx(r, w, x bool) string {
 }
 
 
+
 type nsTestProcesses []struct{pid int; euid, gid uint64; rootfd, cwdfd int; opens []nsTestProcOpen}
 type nsTestProcOpen struct {fd int; majmin string; ino uint64}
 
@@ -311,6 +529,7 @@ func checkNSProcesses(ns *namespaceType, T *testing.T, testProcesses nsTestProce
 		}
 	}
 }
+
 
 
 func checkStat(T *testing.T, desc string, stat, test syscall.Stat_t) {
