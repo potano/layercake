@@ -166,8 +166,8 @@ func (fl *FileList) Names() []string {
    # Symbolic link
    symlink /usr/portage targ=/var/db/repos/gentoo
 
-   # Filesystem entry of type to be determined at run time
-   tbd /usr/tmp
+   # Filesystem entry of type to be determined at run time; skip if absent
+   tbd /usr/tmp absent=skip
 */
 
 

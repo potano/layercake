@@ -32,7 +32,7 @@ Required switches: one of -list, -generate, or -help
 
 Optional switches:
   -root <path>       Specify pathname of root of system from which to scrape
-                     the stage file.  Defaults to the current direcory
+                     the stage file.  Defaults to the current directory
   -profile <path>    Directory containing profile to use for stage file.
                      Defaults to etc/portage/make.profile relative to the
                      default or selected root directory

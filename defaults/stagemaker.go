@@ -56,7 +56,7 @@ dir /run
 dir /sys
 dir /tmp
 dir /usr/src
-tbd /usr/tmp
+tbd /usr/tmp absent=skip
 dir /var/db/repos
 dir /var/empty
 dir /var/lock
