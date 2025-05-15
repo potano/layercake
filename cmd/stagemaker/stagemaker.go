@@ -44,9 +44,9 @@ Optional switches:
   -addfiles <file>   File containing list of additional files to insert
                      into tarball
   -recipe <file>     File whose contents may give settings for the -root,
-                     -profile, -atoms, -atomsfile, -addfiles, -nobdeps,
+                     -profile, -atoms, -atomsfile, -addfiles, -bdeps,
                      -novdb, and -staticdev options
-  -nobdeps           Exclude build dependencies
+  -bdeps             Include build dependencies
   -novdb             Exclude VDB (installed-package info at /var/db/pkg)
   -emptydev          Empty /dev:  omit static /dev entries
   -files             List files instead of packages in listing
@@ -72,7 +72,7 @@ Usage:
 func main() {
 	var root, profile, listSet, outputPath, compressionInput, includeAtoms, atomsFile string
 	var fileListFile, recipeFile string
-	var generate, help, listFiles, listFilesByPackage, nobdeps, noVDB, emptyDev, showVer bool
+	var generate, help, listFiles, listFilesByPackage, bdeps, noVDB, emptyDev, showVer bool
 
 	flag.StringVar(&listSet, "list", "", "output list")
 	flag.BoolVar(&generate, "generate", false, "generate stage file")
@@ -84,7 +84,7 @@ func main() {
 	flag.StringVar(&recipeFile, "recipe", "", "name of file with atoms to include")
 	flag.StringVar(&outputPath, "o", "", "output file")
 	flag.StringVar(&compressionInput, "compress", "", "compression method")
-	flag.BoolVar(&nobdeps, "nobdeps", false, "exclude build dependencies")
+	flag.BoolVar(&bdeps, "bdeps", false, "include build dependencies")
 	flag.BoolVar(&noVDB, "novdb", false, "exclude /var/db/pkg files (VDB)")
 	flag.BoolVar(&emptyDev, "emptydev", false, "do not prepopulate /dev with device nodes")
 	flag.BoolVar(&listFiles, "files", false, "list files")
@@ -136,13 +136,13 @@ func main() {
 			case "addfiles":
 				needValue = true
 				fileListFiles = append(fileListFiles, value)
+			case "bdeps":
+				bdeps = true
 			case "compress":
 				needValue = true
 				if len(compressionInput) == 0 {
 					compressionInput= value
 				}
-			case "nobdeps":
-				nobdeps = true
 			case "novdb":
 				noVDB = true
 			case "emptydev":
@@ -160,7 +160,7 @@ func main() {
 	if err != nil {
 		fatal(err.Error())
 	}
-	data.includeBdepend = !nobdeps
+	data.includeBdepend = bdeps
 	data.includeVDB = !noVDB
 	data.includeStaticDev = ! emptyDev
 
